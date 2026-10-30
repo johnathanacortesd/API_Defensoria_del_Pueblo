@@ -75,7 +75,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 ## Archivos
 
-- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.4)
+- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.6)
 - `resumen_informe.py` — lectura de primera hoja, conteos y redacción
 - `clientes/` — solo el perfil de este cliente
 - `analyzer_tono_tema.py`, `pipeline.py`, `ai_analyzer.py`,
@@ -130,3 +130,28 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   alias, los voceros, el criterio y la guía de Alertas Tempranas quedan
   precargados; "Sin perfil" sigue disponible si se quiere configurar a
   mano.
+
+## Novedades v1.5 (2026-10-30, pendiente de push)
+
+- Alertas Tempranas, subtema unificado: toda noticia cuyo hecho principal
+  sea una Alerta Temprana de la Defensoría —incluida la Alerta Temprana
+  028 de 2026 y cualquier otra similar, sin importar número, año o
+  zona— queda con el subtema exacto "Alertas Defensoría del Pueblo".
+  Ya no se parte por zona ("Alerta Temprana en Cauca" / "en Chocó").
+  La regla es doble: la guía del perfil le dice al modelo que use ese
+  texto exacto, y un pase determinista del motor lo impone después del
+  etiquetado aunque el modelo devuelva variantes. Como el subtema queda
+  unificado antes de asignar temas, el Tema_IA también queda igual para
+  todas esas noticias. Las noticias sin Alerta Temprana no se tocan.
+- Ajuste general del motor (no atado a este cliente): "alerta" pasa a
+  ser sustantivo de hecho, así que una etiqueta que empieza por ella ya
+  no se marca como "lista de nombres sin hecho" ni cae a "Hecho
+  informativo" en la puerta final. Sin este ajuste, la etiqueta fija
+  habría sido descartada por esa puerta.
+
+## Novedades v1.6 (2026-10-30, pendiente de push; incluye la v1.5, aún sin publicar)
+
+- Incluye la v1.5 (Alertas Tempranas con subtema fijo) que estaba
+  pendiente de push.
+- Soporte de motor para TIPO y GÉNERO (nuevo en v1.6), desactivado en
+  este repo: la salida de Defensoría no cambia.

@@ -18,5 +18,12 @@
   "criterio_custom": "",
   "taxonomia": null,
   "notas": "Enfoque: lo que dicen para la Defensoría del Pueblo de Colombia y palabras similares relacionadas (defensoría delegada, defensor regional, sigla DP; comúnmente se le menciona directamente como 'la Defensoría'). La comparación es sin mayúsculas ni acentos: valen 'iris marín' en minúsculas y 'Iris Marín' (nombre + primer apellido), además del nombre completo 'Iris Marín Ortiz'. No confundir con defensorías de otros países ni con la Procuraduría o las personerías: son entidades distintas. El tono se mide solo sobre la marca/alias/vocero, no sobre la noticia en general. Subtema clave: las Alertas Tempranas (ver guia_subtema). Vocera verificada en 2026: Iris Marín Ortiz, defensora del Pueblo.",
-  "guia_subtema": "Para este cliente, las Alertas Tempranas son un subtema clave: cuando el hecho principal de la noticia sea que la Defensoría emite, actualiza o advierte mediante una Alerta Temprana, el sub_tema debe identificarla explícitamente como Alerta Temprana (por ejemplo, 'Alerta Temprana en Cauca'), en vez de diluirla en un subtema genérico sobre violencia, seguridad o derechos. No inventes un número de alerta ni una zona que no aparezcan en el cuerpo."
+  "guia_subtema": "Para este cliente, las Alertas Tempranas son un subtema clave: cuando el hecho principal de la noticia sea que la Defensoría emite, actualiza o advierte mediante una Alerta Temprana —incluida la Alerta Temprana 028 de 2026 y cualquier otra Alerta Temprana similar, sin importar su número, año o zona—, el sub_tema debe ser EXACTAMENTE 'Alertas Defensoría del Pueblo', sin número, sin zona y sin variantes (no 'Alerta Temprana en Cauca' ni subtemas genéricos sobre violencia, seguridad o derechos). No inventes un número de alerta ni una zona que no aparezcan en el cuerpo.",
+  "subtemas_fijos": [
+    {
+      "contiene": "alerta temprana",
+      "subtema": "Alertas Defensoría del Pueblo"
+    }
+  ],
+  "clasificar_tipo_genero": false
 }

@@ -75,7 +75,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 ## Archivos
 
-- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.1)
+- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.2)
 - `resumen_informe.py` — lectura de primera hoja, conteos y redacción
 - `clientes/` — solo el perfil de este cliente
 - `analyzer_tono_tema.py`, `pipeline.py`, `ai_analyzer.py`,
@@ -103,3 +103,13 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   actualiza o advierte mediante una Alerta Temprana, el subtema debe
   identificarla explícitamente (ej. "Alerta Temprana en Cauca"), sin
   inventar número ni zona que no aparezcan en el cuerpo.
+
+## Novedades v1.2 (2026-10-30, pendiente de push)
+
+- Aviso de cliente en todas las pantallas: en la pantalla de contraseña
+  ("Sistema de Limpieza y Análisis") aparece "📍 App de: Defensoría del
+  Pueblo", y tras ingresar queda un aviso permanente con el mismo texto
+  (fuera del contenedor que se borra al procesar, así que también se ve
+  durante el procesamiento y en la vista de resultados) y en el pie de
+  página. Las dos apps comparten diseño y título de sistema, por eso el
+  aviso es explícito y no depende solo del encabezado.

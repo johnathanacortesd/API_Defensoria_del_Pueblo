@@ -75,7 +75,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 ## Archivos
 
-- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.0)
+- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.1)
 - `resumen_informe.py` — lectura de primera hoja, conteos y redacción
 - `clientes/` — solo el perfil de este cliente
 - `analyzer_tono_tema.py`, `pipeline.py`, `ai_analyzer.py`,
@@ -83,3 +83,23 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   `historial_cliente.py`, `auditoria_mail.py` — motor Grill v4.67
 - `SPEC_TONO_TEMA.md` — especificación de tono/tema heredada de Grill
 - `requirements.txt` — dependencias (Streamlit, pandas, openpyxl, openai…)
+
+## Novedades v1.1 (2026-10-30, pendiente de push)
+
+- Sigla **DP** agregada como alias; "la Defensoría" ya estaba como alias
+  y se mantiene como forma habitual de mención.
+- La comparación de marca/alias/vocero ya era sin mayúsculas ni acentos
+  (se normaliza antes de comparar); se verificó con pruebas: valen
+  "iris marín" en minúsculas, "IRIS MARÍN ORTIZ" y "Iris Marín"
+  (nombre + primer apellido), además del nombre completo.
+- Corrección general en estos dos repos (no en Grill): las siglas de 2
+  letras ya cuentan en título y en Contexto analizado (antes se exigían
+  3 caracteres y "DP" se caía); los bordes de palabra evitan que "DP"
+  cuente dentro de otra palabra, y Procuraduría/Personerías siguen sin
+  contar.
+- **Alertas Tempranas como subtema clave**: el perfil trae
+  `guia_subtema` y el prompt del modelo la recibe como guía propia de
+  este cliente. Cuando el hecho principal sea que la Defensoría emite,
+  actualiza o advierte mediante una Alerta Temprana, el subtema debe
+  identificarla explícitamente (ej. "Alerta Temprana en Cauca"), sin
+  inventar número ni zona que no aparezcan en el cuerpo.

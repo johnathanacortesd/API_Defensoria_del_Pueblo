@@ -75,7 +75,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 ## Archivos
 
-- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.3)
+- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.4)
 - `resumen_informe.py` — lectura de primera hoja, conteos y redacción
 - `clientes/` — solo el perfil de este cliente
 - `analyzer_tono_tema.py`, `pipeline.py`, `ai_analyzer.py`,
@@ -121,3 +121,12 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   "{CLIENTE_NOMBRE}" en vez del nombre. Ahora es f-string en los tres
   sitios (contraseña, aviso permanente y pie) y se verifica el texto
   renderizado, no solo el código fuente.
+
+## Novedades v1.4 (2026-10-30, pendiente de push)
+
+- El selector "Perfil de cliente" de la pestaña "Dossier estándar" ahora
+  sale por defecto con el perfil de esta app ("Defensoría del Pueblo"),
+  en vez de "Sin perfil (configuración manual)". Al abrir, la marca, los
+  alias, los voceros, el criterio y la guía de Alertas Tempranas quedan
+  precargados; "Sin perfil" sigue disponible si se quiere configurar a
+  mano.

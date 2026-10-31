@@ -75,7 +75,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 ## Archivos
 
-- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.7)
+- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.11)
 - `resumen_informe.py` — lectura de primera hoja, conteos y redacción
 - `clientes/` — solo el perfil de este cliente
 - `analyzer_tono_tema.py`, `pipeline.py`, `ai_analyzer.py`,
@@ -184,3 +184,53 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   volcar, sin LLM y sin guarda de fidelidad; solo toca el subtema.
 - La regla de Alertas Temprana (subtema exacto "Alertas Defensoría del
   Pueblo") queda intacta. Secretaría no se toca.
+
+## Novedades v1.8 (2026-10-31, nunca pusheada; incluida en v1.9; solo Defensoría)
+
+- Sin cambios de foco: el perfil ya era exactamente el indicado por el
+  usuario (Defensoría, la Defensoría, Defensoría del Pueblo,
+  Defensoría del Pueblo de Colombia, defensoría delegada, defensor
+  regional, DP; Iris Marín Ortiz, Iris Marín). Se mantienen el filtro
+  Sheets, el boletín de 23 columnas y la regla de Alertas Temprana.
+- Tono: misma regla general determinista que Secretaría v1.12
+  (decreto/resolución/acuerdo/ordenanza sin crítica = Neutro).
+- Velocidad: misma paralelización de las auditorías Jev que
+  Secretaría v1.12 (mismas llamadas y resultados, solo menos tiempo).
+- Secretaría no se toca.
+
+## Novedades v1.9 (2026-10-31, nunca pusheada; incluida en v1.10; solo Defensoría)
+
+- Incluye todo lo de v1.8 (regla decreto, Jev paralelo), que nunca se
+  pusheó.
+- Web Ext como ÚLTIMA columna del boletín (tras Audio): 24 columnas
+  (sin TIPO/GÉNERO). La guardia de género por URL no tiene efecto aquí
+  (Defensoría no clasifica género), pero el motor es idéntico.
+- Fidelidad FINAL por fila: igual que Secretaría v1.13 (mismo motor):
+  ningún Subtema_IA llega al Excel si no corresponde a su fila
+  (título/cuerpo); si no corresponde, la fila recupera su rótulo
+  propio. Misma nota: Grill comparte este motor y le corresponde el
+  mismo arreglo en su próxima versión (no se toca aquí).
+- Secretaría no se toca (salvo el motor compartido, que es idéntico).
+
+## Novedades v1.10 (2026-10-31, nunca pusheada; incluida en v1.11; solo Defensoría)
+
+- Incluye todo lo de v1.9 (nunca pusheada).
+- HORA B del boletín: en la tarde dice "4:00 p.m." (antes "6:00 p.m."),
+  por pedido del usuario 2026-10-31. La mañana no cambia: antes de la
+  1 p.m. de Bogotá sigue "1:00 p.m.". Implementado como campo genérico
+  de perfil `hora_boletin_tarde` (por defecto "6:00 p.m."; Defensoría
+  lo trae en "4:00 p.m."), plomado perfil -> app -> pipeline, sin
+  hardcodear el cliente en el motor. Secretaría sigue en "6:00 p.m.".
+- Secretaría no se toca (salvo el motor compartido, que es idéntico).
+
+## Novedades v1.11 (2026-10-31, pendiente de push; solo Defensoría)
+
+- Incluye todo lo de v1.10 (nunca pusheada).
+- HORA B del boletín por horario de perfil (campo genérico, sin
+  hardcodear el cliente): corte 16, antes "4:00 p.m.", después
+  "8:00 a.m.". O sea: si se corre antes de las 4 p.m. dice
+  "4:00 p.m." (el boletín que se arma en el día); si se corre desde
+  las 4 p.m. dice "8:00 a.m." (el boletín que se arma tras la
+  descarga de las 4 p.m.). La mañana de Secretaría no cambia
+  (corte 13, 1:00 p.m. / 6:00 p.m.).
+- Secretaría no se toca (salvo el motor compartido, que es idéntico).

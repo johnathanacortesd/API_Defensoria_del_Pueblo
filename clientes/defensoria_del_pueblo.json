@@ -26,5 +26,8 @@
     }
   ],
   "clasificar_tipo_genero": false,
-  "formato_boletin": true
+  "formato_boletin": true,
+  "hora_boletin_corte": 16,
+  "hora_boletin_antes": "4:00 p.m.",
+  "hora_boletin_despues": "8:00 a.m."
 }

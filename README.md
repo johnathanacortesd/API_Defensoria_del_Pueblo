@@ -75,7 +75,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 ## Archivos
 
-- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.11)
+- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.12)
 - `resumen_informe.py` — lectura de primera hoja, conteos y redacción
 - `clientes/` — solo el perfil de este cliente
 - `analyzer_tono_tema.py`, `pipeline.py`, `ai_analyzer.py`,
@@ -223,7 +223,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   hardcodear el cliente en el motor. Secretaría sigue en "6:00 p.m.".
 - Secretaría no se toca (salvo el motor compartido, que es idéntico).
 
-## Novedades v1.11 (2026-10-31, pendiente de push; solo Defensoría)
+## Novedades v1.11 (2026-10-31, PUSH HECHO, solo Defensoría)
 
 - Incluye todo lo de v1.10 (nunca pusheada).
 - HORA B del boletín por horario de perfil (campo genérico, sin
@@ -233,4 +233,13 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   las 4 p.m. dice "8:00 a.m." (el boletín que se arma tras la
   descarga de las 4 p.m.). La mañana de Secretaría no cambia
   (corte 13, 1:00 p.m. / 6:00 p.m.).
+- Secretaría no se toca (salvo el motor compartido, que es idéntico).
+
+## Novedades v1.12 (2026-10-31, pendiente de push; solo Defensoría)
+
+- FECHA INFORME es la fecha de procesamiento (Bogotá, mismo instante
+  que HORA B), NO la Fecha de la nota: todas las filas llevan la
+  misma fecha, la del día en que se corrió. Antes llevaba la Fecha
+  de cada nota (v1.7). HORA B no cambia (corte 16, 4:00 p.m. /
+  8:00 a.m.), confirmado por el usuario 2026-10-31.
 - Secretaría no se toca (salvo el motor compartido, que es idéntico).

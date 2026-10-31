@@ -75,7 +75,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 ## Archivos
 
-- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.6)
+- `app.py` — interfaz (Grill v4.67 + sección Resumen, versión visible v1.7)
 - `resumen_informe.py` — lectura de primera hoja, conteos y redacción
 - `clientes/` — solo el perfil de este cliente
 - `analyzer_tono_tema.py`, `pipeline.py`, `ai_analyzer.py`,
@@ -155,3 +155,32 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   pendiente de push.
 - Soporte de motor para TIPO y GÉNERO (nuevo en v1.6), desactivado en
   este repo: la salida de Defensoría no cambia.
+
+## Novedades v1.7 (2026-10-31, pendiente de push; solo Defensoría)
+
+- Comparativo con Google Sheets (igual que Secretaría v1.8): antes de
+  procesar, la app compara la columna NoticiaId del dossier con la
+  columna ID de la hoja de notas ya analizadas de Defensoría
+  (primera hoja) y solo procesa las notas que NO están en la hoja.
+  La hoja se lee en cada corrida vía exportación CSV pública (sin
+  inicio de sesión) y solo se parsea la columna ID; la detección de
+  la columna acepta "ID", "ID Noticia" y "NoticiaId". Opción "Excluir
+  notas ya analizadas (Google Sheets)" en ambas pestañas (activada por
+  defecto); si la hoja no se puede leer, el proceso se detiene con un
+  mensaje claro y desmarcando la opción se procesan todas las notas.
+  El límite de 1.000 filas aplica a las notas NUEVAS.
+- Orden del xlsx final para el boletín (por perfil "formato_boletin"):
+  ID Noticia, Fecha, Medio, Región, Tipo de Medio, Sección - Programa,
+  Título, Duración - Nro. Caracteres, CPE, Audiencia, Tier, Tono_IA,
+  Subtema_IA, Link Nota, texto, Link (Streaming - Imagen), Link Ext,
+  FECHA INFORME, HORA B, ID duplicada, Contexto analizado,
+  Resumen - Aclaracion, Audio. Sin TIPO ni GÉNERO (Defensoría no los
+  clasifica) y sin Web Ext. FECHA INFORME es la Fecha de la nota;
+  HORA B es "1:00 p.m." antes de la 1 p.m. de Bogotá y "6:00 p.m."
+  desde la 1 p.m. En la pestaña personalizada van estas columnas
+  primero y después las personalizadas extra.
+- Mismo Título => mismo Subtema_IA (igual que Secretaría v1.10): pase
+  final determinista después de la puerta anti-copia y antes de
+  volcar, sin LLM y sin guarda de fidelidad; solo toca el subtema.
+- La regla de Alertas Temprana (subtema exacto "Alertas Defensoría del
+  Pueblo") queda intacta. Secretaría no se toca.

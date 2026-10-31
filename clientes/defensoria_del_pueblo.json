@@ -25,5 +25,6 @@
       "subtema": "Alertas Defensoría del Pueblo"
     }
   ],
-  "clasificar_tipo_genero": false
+  "clasificar_tipo_genero": false,
+  "formato_boletin": true
 }

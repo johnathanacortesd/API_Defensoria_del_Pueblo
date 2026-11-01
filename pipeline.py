@@ -1360,7 +1360,7 @@ def expand_menciones(df) -> List[dict]:
 # ======================================
 # Exportar a Excel (XlsxWriter, streaming)
 # ======================================
-def generate_output_excel(rows, km, progress: ProgressCb = None, columns_to_use: List[str] = None, plain_link_ext: bool = False):
+def generate_output_excel(rows, km, progress: ProgressCb = None, columns_to_use: List[str] = None):
     cols = columns_to_use or BASE_OUTPUT_COLUMNS
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(
@@ -1400,7 +1400,6 @@ def generate_output_excel(rows, km, progress: ProgressCb = None, columns_to_use:
         _write_xlsx_rows(
             ws, rows, km, n, step, progress,
             fmt_link, fmt_plain_hlink, fmt_date, fmt_currency, fmt_thousands, fmt_plain_id, cols,
-            plain_link_ext=plain_link_ext,
         )
         emit_progress(progress, 100, "Guardando archivo Excel…")
     finally:
@@ -1408,7 +1407,7 @@ def generate_output_excel(rows, km, progress: ProgressCb = None, columns_to_use:
     return buf.getvalue()
 
 
-def _write_xlsx_rows(ws, rows, km, n, step, progress, fmt_link, fmt_plain_hlink, fmt_date, fmt_currency, fmt_thousands, fmt_plain_id, cols, plain_link_ext=False):
+def _write_xlsx_rows(ws, rows, km, n, step, progress, fmt_link, fmt_plain_hlink, fmt_date, fmt_currency, fmt_thousands, fmt_plain_id, cols):
     for i, row in enumerate(rows):
         tk = km.get("titulo")
         if tk and tk in row:
@@ -1466,11 +1465,13 @@ def _write_xlsx_rows(ws, rows, km, n, step, progress, fmt_link, fmt_plain_hlink,
             if h in ("Link Ext", "Web Ext"):
                 url_ext = _url_link_ext(row) if h == "Link Ext" else _url_web_ext(row)
                 if url_ext:
-                    # v1.17 Defensoría (perfil link_ext_plano, orden del
-                    # usuario): Link Ext como TEXTO PLANO (negro, sin
-                    # subrayado, sin hipervínculo), igual que ENLACE.
-                    # Web Ext y Secretaría (flag apagado) no cambian.
-                    if plain_link_ext and h == "Link Ext":
+                    # Link Ext SIEMPRE como TEXTO PLANO (orden del usuario,
+                    # Secretaría y Defensoría): negro, sin subrayado, sin
+                    # hipervínculo, igual que ENLACE. Sin flag ni caminos:
+                    # la v1.17 con flag fallaba en la pestaña personalizada
+                    # y sin IA porque esa config nunca llevaba el flag.
+                    # Web Ext sigue clicable, como antes.
+                    if h == "Link Ext":
                         ws.write_string(excel_row, cidx, url_ext, fmt_plain_hlink)
                     else:
                         ws.write_url(excel_row, cidx, url_ext, fmt_link, string=url_ext)
@@ -1845,7 +1846,7 @@ def process_dossier(
         for _r in rows:
             _r["FECHA INFORME"] = _fecha_informe
 
-    output_data = generate_output_excel(rows, KEY_MAP, progress=export_progress, columns_to_use=cols_to_export, plain_link_ext=bool((ai_config or {}).get("link_ext_plano")))
+    output_data = generate_output_excel(rows, KEY_MAP, progress=export_progress, columns_to_use=cols_to_export)
     _conteo_tonos = _contar_tonos(rows)
     del rows, rows_expanded
     gc.collect()

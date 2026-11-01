@@ -26,6 +26,7 @@
     }
   ],
   "clasificar_tipo_genero": false,
+  "link_ext_plano": true,
   "formato_boletin": true,
   "hora_boletin_corte_manana": 8,
   "hora_boletin_corte_tarde": 16,

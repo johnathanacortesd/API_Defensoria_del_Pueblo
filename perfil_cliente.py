@@ -61,6 +61,7 @@ def _defaults() -> dict:
         "subtemas_fijos": [],
         "clasificar_tipo_genero": False,
         "tono_distrito_positivo": False,
+        "link_ext_plano": False,
         "formato_boletin": False,
         "hora_boletin_corte_manana": 13,
         "hora_boletin_corte_tarde": 18,
@@ -94,6 +95,8 @@ def validar_perfil(data: dict) -> list:
         errores.append("'clasificar_tipo_genero' debe ser true/false")
     if not isinstance(d["tono_distrito_positivo"], bool):
         errores.append("'tono_distrito_positivo' debe ser true/false")
+    if not isinstance(d["link_ext_plano"], bool):
+        errores.append("'link_ext_plano' debe ser true/false")
     if not isinstance(d["formato_boletin"], bool):
         errores.append("'formato_boletin' debe ser true/false")
     _cm, _ct = d["hora_boletin_corte_manana"], d["hora_boletin_corte_tarde"]
@@ -136,6 +139,7 @@ def normalizar_perfil(data: dict) -> dict:
     ]
     d["clasificar_tipo_genero"] = bool(d["clasificar_tipo_genero"])
     d["tono_distrito_positivo"] = bool(d["tono_distrito_positivo"])
+    d["link_ext_plano"] = bool(d["link_ext_plano"])
     d["formato_boletin"] = bool(d["formato_boletin"])
     # v1.18/v1.14: compatibilidad con perfiles guardados con el modelo
     # viejo de un solo corte (hora_boletin_corte/antes/despues): si el

@@ -18,7 +18,7 @@
   "criterio_custom": "",
   "taxonomia": null,
   "notas": "Enfoque: lo que dicen para la Defensoría del Pueblo de Colombia y palabras similares relacionadas (defensoría delegada, defensor regional, sigla DP; comúnmente se le menciona directamente como 'la Defensoría'). La comparación es sin mayúsculas ni acentos: valen 'iris marín' en minúsculas y 'Iris Marín' (nombre + primer apellido), además del nombre completo 'Iris Marín Ortiz'. No confundir con defensorías de otros países ni con la Procuraduría o las personerías: son entidades distintas. El tono se mide solo sobre la marca/alias/vocero, no sobre la noticia en general. Subtema clave: las Alertas Tempranas (ver guia_subtema). Vocera verificada en 2026: Iris Marín Ortiz, defensora del Pueblo.",
-  "guia_subtema": "Para este cliente, las Alertas Tempranas son un subtema clave: cuando el hecho principal de la noticia sea que la Defensoría emite, actualiza o advierte mediante una Alerta Temprana —incluida la Alerta Temprana 028 de 2026 y cualquier otra Alerta Temprana similar, sin importar su número, año o zona—, el sub_tema debe ser EXACTAMENTE 'Alertas Defensoría del Pueblo', sin número, sin zona y sin variantes (no 'Alerta Temprana en Cauca' ni subtemas genéricos sobre violencia, seguridad o derechos). No inventes un número de alerta ni una zona que no aparezcan en el cuerpo.",
+  "guia_subtema": "Para este cliente, las Alertas Tempranas son un subtema clave: cuando el hecho principal de la noticia sea que la Defensoría emite, actualiza o advierte mediante una Alerta Temprana —incluida la Alerta Temprana 028 de 2026 y cualquier otra Alerta Temprana similar, sin importar su número, año o zona—, el sub_tema debe ser EXACTAMENTE 'Alertas Defensoría del Pueblo', sin número, sin zona y sin variantes (no 'Alerta Temprana en Cauca' ni subtemas genéricos sobre violencia, seguridad o derechos). No inventes un número de alerta ni una zona que no aparezcan en el cuerpo. Fuera de las Alertas Tempranas, el sub-tema indica de qué habla ESA nota, con precisión: el asunto o hecho concreto en 2 a 5 palabras (p. ej. 'Informe sobre líderes sociales asesinados', 'Crisis humanitaria en el Catatumbo', 'Defensa de derechos de migrantes'). Nunca la entidad o la persona como tema: no 'Defensoría del Pueblo', 'Gestión de la Defensoría' ni 'Declaraciones de Iris Marín'; si la Defensoría o su vocera solo opinan sobre un asunto, el sub-tema es ese asunto. NO fuerces una nota a un sub-tema que no es el suyo. Solo las notas iguales o muy parecidas (mismo titular, mismo texto o el mismo hecho contado casi igual) comparten exactamente el mismo sub-tema; las demás conservan el suyo.",
   "subtemas_fijos": [
     {
       "contiene": "alerta temprana",
@@ -26,6 +26,7 @@
     }
   ],
   "clasificar_tipo_genero": false,
+  "agrupacion_estricta": true,
   "formato_boletin": true,
   "hora_boletin_corte_manana": 8,
   "hora_boletin_corte_tarde": 16,

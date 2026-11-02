@@ -250,3 +250,40 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   texto plano, sin hipervínculo (cualquier capitalización). Link
   Nota, Link Ext, Web Ext y Audio no cambian.
 - Secretaría no se toca (salvo el motor compartido, que es idéntico).
+
+## Novedades v1.26 (2026-11-02; solo Defensoría)
+
+Se replican las mejoras de tono y subtema de Secretaría (v1.29 a v1.31),
+sin TIPO/GÉNERO (este perfil no los usa) y sin tocar HORA B (8:00 a.m. /
+4:00 p.m., cortes 8 y 16).
+
+- **Agrupación estricta** (`agrupacion_estricta: true` en el perfil): dos
+  noticias comparten subtema SOLO con evidencia: título igual o muy
+  parecido, Contexto analizado con pasajes literales compartidos o
+  CuerpoEs igual o muy parecido. Se omiten las uniones por parecido del
+  rótulo y por "ancla" temática; los pases finales por título usan el
+  mismo umbral estricto. Las notas que no se parecen a otras conservan
+  su subtema. La regla fija de Alertas Tempranas ("Alertas Defensoría
+  del Pueblo") se mantiene.
+- **Coherencia por noticia**: misma noticia => mismo subtema (si hay un
+  rótulo fiel a todas) y mismo tono; noticias distintas con el mismo
+  subtema conservan cada una su tono.
+- **Tono enfocado en marca, alias y voceros**:
+  - Las reglas de "crítica dirigida a la marca" ahora cuentan a la
+    vocera (Iris Marín): antes una crítica a ella podía bajar a Neutro;
+    y "cuestionan a la Defensoría" no coincidía por el artículo.
+  - El patrón de "crítica" no exigía inicio de palabra ("atac" dentro
+    de "contratación").
+  - Si la marca o su vocera es sujeto de una gestión ("la Defensoría
+    presentó…"), el Positivo no baja a Neutro por una sola mención.
+  - Empates de tono dentro de la misma noticia: se deciden con la
+    evidencia del texto en vez de ir siempre a Neutro.
+- **Más ágil con el mismo modelo**: la consolidación solo revisa los
+  grupos con evidencia (sin llamada si un subtema ya es fiel a todos), y
+  la auditoría Jev corre en paralelo con el etiquetado.
+- Validador: acepta nombres propios de proyecto/programa como subtema
+  aunque estén en el titular. Ejemplos del prompt corregidos (enseñaban
+  dos subtemas distintos para la misma noticia). Corrección del NameError
+  de `km` en el volcado.
+- Se quita la sección "📝 Resumen para informe" y su módulo
+  `resumen_informe.py` (pedido del usuario).

@@ -18,7 +18,7 @@ from pipeline import (process_dossier, leer_columnas_xlsx, sugerir_columna,
                       cargar_ids_analizados_desde_sheets)
 
 # Versión visible de la app (se muestra en el encabezado). Actualizar en cada release.
-APP_VERSION = "v1.27"
+APP_VERSION = "v1.28"
 
 # v1.2: cliente fijo de este repo. Se muestra en la pantalla de
 # contraseña y en un aviso permanente tras ingresar, para que las
@@ -562,6 +562,7 @@ def main():
                             st.session_state["_perfil_tono_distrito_positivo"] = bool(_perfil_actual.get("tono_distrito_positivo"))
                             st.session_state["_perfil_agrupacion_estricta"] = bool(_perfil_actual.get("agrupacion_estricta"))
                             st.session_state["_perfil_tono_alertas_tempranas"] = bool(_perfil_actual.get("tono_alertas_tempranas"))
+                            st.session_state["_perfil_tono_labor_positiva"] = bool(_perfil_actual.get("tono_labor_positiva"))
                             st.session_state["_perfil_formato_boletin"] = bool(_perfil_actual.get("formato_boletin"))
                             _cm_p = _perfil_actual.get("hora_boletin_corte_manana")
                             _ct_p = _perfil_actual.get("hora_boletin_corte_tarde")
@@ -581,6 +582,7 @@ def main():
                     st.session_state["_perfil_tono_distrito_positivo"] = False
                     st.session_state["_perfil_agrupacion_estricta"] = False
                     st.session_state["_perfil_tono_alertas_tempranas"] = False
+                    st.session_state["_perfil_tono_labor_positiva"] = False
                     st.session_state["_perfil_formato_boletin"] = False
                     st.session_state["_perfil_hora_boletin_corte_manana"] = 13
                     st.session_state["_perfil_hora_boletin_corte_tarde"] = 18
@@ -800,6 +802,7 @@ def main():
                                         "tono_distrito_positivo": bool(st.session_state.get("_perfil_tono_distrito_positivo")),
                                         "agrupacion_estricta": bool(st.session_state.get("_perfil_agrupacion_estricta")),
                                         "tono_alertas_tempranas": bool(st.session_state.get("_perfil_tono_alertas_tempranas")),
+                                        "tono_labor_positiva": bool(st.session_state.get("_perfil_tono_labor_positiva")),
                                         "formato_boletin": bool(st.session_state.get("_perfil_formato_boletin")),
                                         "hora_boletin_corte_manana": st.session_state.get("_perfil_hora_boletin_corte_manana", 13),
                                         "hora_boletin_corte_tarde": st.session_state.get("_perfil_hora_boletin_corte_tarde", 18),
@@ -840,6 +843,7 @@ def main():
                                     "tono_distrito_positivo": bool(st.session_state.get("_perfil_tono_distrito_positivo")),
                                     "agrupacion_estricta": bool(st.session_state.get("_perfil_agrupacion_estricta")),
                                     "tono_alertas_tempranas": bool(st.session_state.get("_perfil_tono_alertas_tempranas")),
+                                    "tono_labor_positiva": bool(st.session_state.get("_perfil_tono_labor_positiva")),
                                     "formato_boletin": bool(st.session_state.get("_perfil_formato_boletin")),
                                     "hora_boletin_corte_manana": st.session_state.get("_perfil_hora_boletin_corte_manana", 13),
                                     "hora_boletin_corte_tarde": st.session_state.get("_perfil_hora_boletin_corte_tarde", 18),
@@ -1075,6 +1079,7 @@ def main():
                             tono_distrito_positivo=bool(st.session_state.get("_perfil_tono_distrito_positivo")),
                             agrupacion_estricta=bool(st.session_state.get("_perfil_agrupacion_estricta")),
                             tono_alertas_tempranas=bool(st.session_state.get("_perfil_tono_alertas_tempranas")),
+                            tono_labor_positiva=bool(st.session_state.get("_perfil_tono_labor_positiva")),
                             formato_boletin=bool(st.session_state.get("_perfil_formato_boletin")),
                             hora_boletin_corte_manana=st.session_state.get("_perfil_hora_boletin_corte_manana", 13),
                             hora_boletin_corte_tarde=st.session_state.get("_perfil_hora_boletin_corte_tarde", 18),

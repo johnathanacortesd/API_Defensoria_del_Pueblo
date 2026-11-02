@@ -18,7 +18,7 @@ from pipeline import (process_dossier, leer_columnas_xlsx, sugerir_columna,
                       cargar_ids_analizados_desde_sheets)
 
 # Versión visible de la app (se muestra en el encabezado). Actualizar en cada release.
-APP_VERSION = "v1.28"
+APP_VERSION = "v1.29"
 
 # v1.2: cliente fijo de este repo. Se muestra en la pantalla de
 # contraseña y en un aviso permanente tras ingresar, para que las

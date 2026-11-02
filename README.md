@@ -336,3 +336,13 @@ sin TIPO/GÉNERO (este perfil no los usa) y sin tocar HORA B (8:00 a.m. /
   del mismo rótulo, más verbos de gestión (designó, nombró, abrió…) y la
   columna texto con crédito al final del Resumen (toma las oraciones
   anteriores).
+
+## Novedades v1.29 (2026-11-02; solo Defensoría)
+
+Forma del subtema (pedido del usuario: casos reales "Días dejan cinco muertos
+en el suroccidente" y "Ellos, una bebé de dos meses"): un subtema jamás lleva
+comas ni puntos (salvo comas de un nombre propio de programa y cifras), jamás
+empieza con pronombre y jamás es una oración "sujeto + verbo". El validador
+los marca (la puerta anti-copia los reformula), el respaldo del titular/cuerpo
+ya no los produce y una revisión final antes de exportar prefiere el subtema
+del grupo. "Alertas Defensoría del Pueblo" no se ve afectado.

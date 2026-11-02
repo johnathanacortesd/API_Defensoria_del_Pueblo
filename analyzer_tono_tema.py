@@ -425,7 +425,7 @@ MODELO_DEFECTO = "gpt-6-luna"
 # v4.53: sello del analizador. El encabezado de la app lo muestra junto a
 # APP_VERSION; si el despliegue muestra un sello distinto (o "sin-sello"),
 # el contenedor NO corre este archivo aunque el encabezado diga otra versión.
-ANALYZER_BUILD = "v4.71-agrupacion-estricta"  # v4.62: ancla de riesgo + clases de sinonimia
+ANALYZER_BUILD = "v4.72-def-alertas-labor"  # v4.62: ancla de riesgo + clases de sinonimia
 # v4.53: solo cambia el sello (la lógica del analizador no se toca en esta versión;
 # el cambio es de interfaz).
 JEV_URL_DEFECTO = "https://api.typesafe.ai/v1/systemone"
@@ -3420,6 +3420,32 @@ def _elegir_canon_fiel(valores: Sequence[str],
     return ''
 
 
+def _conservar_rotulo_original(sub: str, nuevo: str, tit: str, txt: str,
+                               brand: str = '', aliases: Sequence[str] = ()) -> bool:
+    """v1.28: True si conviene conservar el rótulo del modelo aunque la guarda
+    de fidelidad lo haya rechazado: el reemplazo derivado del titular sale
+    peor (copia del titular o empieza con verbo) y el original sí tiene
+    relación con la nota (sus nombres propios están en ella y al menos una
+    palabra distintiva aparece). Caso real: «Críticas por informe sobre
+    líderes» se cambiaba por «Cuestionan a Iris Marín por informe
+    incompleto». Los rótulos de OTRA noticia (cero palabras en común) se
+    siguen rechazando."""
+    if not sub or not nuevo:
+        return False
+    malos = {'copia_titular', 'verbo_inicial', 'preposicion_inicial', 'subtema_sin_hecho'}
+    problemas = {p.split('(')[0] for p in validar(nuevo, 'Neutro', [tit])}
+    if not (problemas & malos):
+        return False
+    if validar(sub, 'Neutro', [tit]) and {p.split('(')[0] for p in validar(sub, 'Neutro', [tit])} & malos:
+        return False
+    if not _etiqueta_fiel_a_texto(sub, tit, txt, brand, aliases):
+        return False
+    marca = _contenido_discriminante(' '.join([brand or ''] + list(aliases or [])))
+    dist = (_contenido_discriminante(sub) - GENERICO_NO_UNEN) - marca
+    hay = _contenido_discriminante(str(tit or '') + ' ' + str(txt or ''))
+    return any(any(_emparentado(d, t) for t in hay) for d in dist)
+
+
 def aplicar_guarda_fidelidad_subtema(rows: List[dict], mapa: Dict[int, int],
                                      etiquetas: Dict[int, dict], km: dict,
                                      brand: str = '',
@@ -3452,6 +3478,8 @@ def aplicar_guarda_fidelidad_subtema(rows: List[dict], mapa: Dict[int, int],
         if not _etiqueta_fiel_a_texto(sub, tit, txt, brand, aliases) \
                 or not _asunto_fiel_a_texto(sub, tit, txt, brand, aliases):
             nuevo = _subtema_especifico(tit, [txt])
+            if _conservar_rotulo_original(sub, nuevo, tit, txt, brand, aliases):
+                continue
             if nuevo and nz(nuevo) != nz(sub):
                 ajustes[i] = nuevo
     return ajustes
@@ -3500,6 +3528,8 @@ def aplicar_fidelidad_final_subtema(rows, mapa, etiquetas, ajustes_subtema,
         if not _etiqueta_fiel_a_texto(sub, tit, txt, brand, aliases) \
                 or not _asunto_fiel_a_texto(sub, tit, txt, brand, aliases):
             nuevo = _subtema_especifico(tit, [txt])
+            if _conservar_rotulo_original(sub, nuevo, tit, txt, brand, aliases):
+                continue
             if nz(nuevo) != nz(sub):
                 ajustes[i] = nuevo
     return ajustes
@@ -5128,6 +5158,142 @@ def _desempate_tono(empatados, texto: str, brand: str = '',
     if emp == {'Negativo', 'Neutro'} and critica:
         return 'Negativo'
     return 'Neutro'
+
+
+def unificar_por_asunto_titular(rows, mapa, etiquetas, ajustes_subtema, km,
+                                brand='', aliases=(), voceros=()):
+    """v1.33 (agrupación estricta): un solo subtema por ASUNTO o evento grande.
+
+    Regla del usuario 2026-11-02 («cobertura de una muerte o un evento
+    grande: un solo subtema para todas las notas»), calibrada con 132 notas
+    etiquetadas a mano: el asunto es una frase distintiva de 2 palabras de
+    contenido (sin marca, fechas, cifras ni genéricos) que se repite en los
+    TITULARES de al menos 3 notas distintas («navarro wolff», «pico placa»,
+    «plan retorno»). Las notas que comparten una de esas frases forman un
+    bloque; cada nota toma el subtema más frecuente del bloque que sea bien
+    formado y fiel a su titular + Contexto analizado + inicio del cuerpo. Si
+    ninguno lo es, la nota conserva el suyo (no se fuerza). En la repetición:
+    Navarro Wolff 19 -> 6 subtemas, pico y placa 7 -> 4, sin mezclas nuevas.
+    Devuelve el dict de ajustes actualizado."""
+    ajustes = dict(ajustes_subtema or {})
+    filas = [i for i, r in enumerate(rows) if not r.get('is_duplicate') and mapa.get(i) is not None]
+    if len(filas) < 3:
+        return ajustes
+    marca = _tokens_marca(brand, aliases, voceros)
+
+    def _toks(t):
+        return [w for w in words(nz(t)) if w not in GENERIC_TITULO and w not in CONECT
+                and w not in marca and w not in _FECHA_TITULO and not w.isdigit() and len(w) >= 3]
+
+    def _big(t):
+        ws = _toks(t)
+        return {(a, b) for a, b in zip(ws, ws[1:])}
+    tit = {i: _titulo_fila(rows[i], km) for i in filas}
+    df = Counter(b for t in dict.fromkeys(tit.values()) for b in _big(t))
+    claves = {b for b, c in df.items() if c >= 3}
+    if not claves:
+        return ajustes
+    par = {i: i for i in filas}
+
+    def find(x):
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    primero = {}
+    for i in filas:
+        for b in _big(tit[i]) & claves:
+            if b in primero:
+                ra, rb = find(i), find(primero[b])
+                if ra != rb:
+                    par[max(ra, rb)] = min(ra, rb)
+            else:
+                primero[b] = i
+
+    def _final(i):
+        return (ajustes.get(i) or '').strip() or \
+            str((etiquetas.get(mapa.get(i)) or {}).get('sub_tema') or '').strip()
+
+    def _fuente(i):
+        c = str(rows[i].get('Contexto analizado') or '').strip()
+        c = '' if c == '-' else c
+        return '%s %s' % (c, _texto_fila(rows[i], km)[:1500])
+    comp = defaultdict(list)
+    for i in filas:
+        comp[find(i)].append(i)
+    for ms in comp.values():
+        if len(ms) < 2:
+            continue
+        cnt = Counter(_final(i) for i in ms if _final(i))
+        orden = sorted(cnt, key=lambda c: (-cnt[c], -len(c.split()), c))
+        for i in ms:
+            for c in orden:
+                if _rotulo_bien_formado(c, [tit[i]]) and _rotulo_fiel(c, tit[i], _fuente(i), brand, aliases):
+                    if nz(c) != nz(_final(i)):
+                        ajustes[i] = c
+                    break
+    return ajustes
+
+
+def unificar_variantes_rotulo_estricto(rows, mapa, etiquetas, ajustes_subtema, km,
+                                       brand='', aliases=()):
+    """v1.33 (agrupación estricta): une VARIANTES del mismo rótulo
+    («Fallecimiento de Antonio Navarro» = «Fallecimiento de Antonio Navarro
+    Wolff» = «Muerte de Antonio Navarro Wolff»), que la v1.31 dejaba
+    separadas al apagar la canonización. Solo une rótulos que
+    `_subtemas_mismo_hecho` considera el mismo hecho, y el rótulo elegido
+    (el de más notas) debe ser bien formado y fiel al titular + Contexto
+    analizado de CADA nota que lo recibe; si no lo es para una nota, esa
+    nota conserva el suyo. Devuelve el dict de ajustes actualizado."""
+    ajustes = dict(ajustes_subtema or {})
+    finales = {}
+    for i, row in enumerate(rows):
+        if row.get('is_duplicate') or mapa.get(i) is None:
+            continue
+        lab = (ajustes.get(i) or '').strip() or \
+            str((etiquetas.get(mapa.get(i)) or {}).get('sub_tema') or '').strip()
+        if lab:
+            finales[i] = lab
+    forma, peso = {}, Counter()
+    for i, lab in finales.items():
+        forma.setdefault(nz(lab), lab)
+        peso[nz(lab)] += 1
+    claves = sorted(forma)
+    if len(claves) < 2:
+        return ajustes
+    par = {k: k for k in claves}
+
+    def find(x):
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    for a_i in range(len(claves)):
+        for b_i in range(a_i + 1, len(claves)):
+            a, b = claves[a_i], claves[b_i]
+            if find(a) != find(b) and _subtemas_mismo_hecho(forma[a], forma[b]):
+                par[find(b)] = find(a)
+    comp = defaultdict(list)
+    for k in claves:
+        comp[find(k)].append(k)
+
+    def _ctx(i):
+        c = str(rows[i].get('Contexto analizado') or '').strip()
+        return c if c and c != '-' else _texto_fila(rows[i], km)
+    for ks in comp.values():
+        if len(ks) < 2:
+            continue
+        orden = sorted(ks, key=lambda k: (-peso[k], -len(k.split()), k))
+        filas = [i for i, lab in finales.items() if nz(lab) in ks]
+        for i in filas:
+            tit = _titulo_fila(rows[i], km)
+            for k in orden:
+                c = forma[k]
+                if _rotulo_bien_formado(c, [tit]) and _rotulo_fiel(c, tit, _ctx(i), brand, aliases):
+                    if nz(c) != nz(finales[i]):
+                        ajustes[i] = c
+                    break
+    return ajustes
 
 
 def garantizar_coherencia_hecho(rows: List[dict], mapa: Dict[int, int],
@@ -7065,11 +7231,12 @@ def _frase_contigua(frase: str, texto: str) -> bool:
 def aplicar_subtemas_fijos(grupos, etiquetas, reglas, estricta=False):
     """Fija subtemas por frase del perfil. Devuelve nº de grupos cambiados.
 
-    v1.27 (agrupación estricta): la frase debe ser el HECHO PRINCIPAL, no
-    una mención de paso: va seguida en algún titular del grupo, o el
-    subtema que el modelo ya le dio la contiene. Antes bastaba con que sus
-    palabras aparecieran en cualquier parte del cuerpo, aunque fuera como
-    antecedente («…una zona sobre la que existía una alerta temprana»)."""
+    v1.28 (agrupación estricta, regla del usuario 2026-11-02): la frase debe
+    ir SEGUIDA («alerta temprana» / «alertas tempranas») en el titular, el
+    Resumen - Aclaracion, el CuerpoEs o el Contexto analizado del grupo, o en
+    el subtema que ya le dio el modelo. (La v1.27 exigía titular o subtema y
+    dejaba fuera notas cuyo cuerpo sí habla de la alerta; antes de la v1.27
+    bastaba con que "alerta" y "temprana" aparecieran sueltas.)"""
     limpias = []
     for r in (reglas or []):
         if not isinstance(r, dict):
@@ -7099,6 +7266,7 @@ def aplicar_subtemas_fijos(grupos, etiquetas, reglas, estricta=False):
             pide = {raiz(w) for w in words(contiene)}
             if estricta:
                 aplica = (any(_frase_contigua(contiene, t) for t in titulos)
+                          or _frase_contigua(contiene, texto)
                           or _frase_contigua(contiene, actual)
                           or nz(actual) == nz(subtema))
             else:
@@ -7109,6 +7277,31 @@ def aplicar_subtemas_fijos(grupos, etiquetas, reglas, estricta=False):
                     cambios += 1
                 break
     return cambios
+
+
+def aplicar_subtemas_fijos_final(rows, ajustes_subtema, km, reglas):
+    """v1.28 (regla del usuario 2026-11-02): garantía FINAL por fila de los
+    subtemas fijos del perfil. Si el titular, el Resumen - Aclaracion o el
+    CuerpoEs de la fila dicen la frase seguida («alerta temprana» /
+    «alertas tempranas»), el subtema es el fijo, aunque un pase anterior
+    (fidelidad, anti-copia, unificación) lo haya cambiado. Devuelve el dict
+    de ajustes actualizado."""
+    ajustes = dict(ajustes_subtema or {})
+    limpias = [(str(r.get('contiene') or '').strip(), str(r.get('subtema') or '').strip())
+               for r in (reglas or []) if isinstance(r, dict)]
+    limpias = [(c, s_) for c, s_ in limpias if c and s_]
+    if not limpias:
+        return ajustes
+    for i, row in enumerate(rows):
+        if row.get('is_duplicate'):
+            continue
+        texto = ' '.join([_titulo_fila(row, km), str(row.get('Resumen - Aclaracion') or ''),
+                          str(row.get('CuerpoEs') or ''), _texto_fila(row, km)])
+        for contiene, subtema in limpias:
+            if _frase_contigua(contiene, texto):
+                ajustes[i] = subtema
+                break
+    return ajustes
 
 
 def enrich_rows_with_ai(
@@ -7137,6 +7330,7 @@ def enrich_rows_with_ai(
         'tono_distrito_positivo': bool(extra.get('tono_distrito_positivo')),
         'agrupacion_estricta': bool(extra.get('agrupacion_estricta')),
         'tono_alertas_tempranas': bool(extra.get('tono_alertas_tempranas')),
+        'tono_labor_positiva': bool(extra.get('tono_labor_positiva')),
         'api_key': api_key,
         'typesafe_api_key': extra.get('typesafe_api_key') or '',
         'typesafe_model': extra.get('typesafe_model') or 'jev-latest',
@@ -7415,6 +7609,11 @@ def enrich_rows_with_ai(
     # v1.27 Defensoría: tono de las Alertas Tempranas (ver
     # aplicar_regla_alerta_temprana). Antes del homónimo extranjero, para
     # que la alerta de una Defensoría de otro país siga bajando a Neutro.
+    if cfg.get('tono_labor_positiva'):
+        _labor = aplicar_regla_labor_positiva(
+            grupos, etiquetas, brand, aliases, voceros=cfg.get('voceros') or [])
+        if _labor:
+            _ULTIMO_RESUMEN['tono_labor_positiva'] = _labor
     if cfg.get('tono_alertas_tempranas'):
         _alertas = aplicar_regla_alerta_temprana(
             grupos, etiquetas, brand, aliases, voceros=cfg.get('voceros') or [])
@@ -7447,10 +7646,25 @@ def enrich_rows_with_ai(
         ajustes_fieles = unificar_rotulos_finales(
             rows, mapa, etiquetas, ajustes_fieles, km, brand=brand, aliases=aliases,
             voceros=cfg.get('voceros') or [])
+    else:
+        # v1.28 (de Secretaría v1.33): variantes del mismo rótulo y un solo
+        # subtema por evento grande (frase distintiva repetida en titulares).
+        ajustes_fieles = unificar_variantes_rotulo_estricto(
+            rows, mapa, etiquetas, ajustes_fieles, km, brand=brand, aliases=aliases)
+        ajustes_fieles = unificar_por_asunto_titular(
+            rows, mapa, etiquetas, ajustes_fieles, km, brand=brand, aliases=aliases,
+            voceros=cfg.get('voceros') or [])
+        ajustes_fieles = unificar_variantes_rotulo_estricto(
+            rows, mapa, etiquetas, ajustes_fieles, km, brand=brand, aliases=aliases)
     _nuevos_uni = sum(1 for _i, _v in ajustes_fieles.items()
                       if _previos_uni.get(_i) != _v)
     if _nuevos_uni:
         _ULTIMO_RESUMEN['subtemas_unificados_finales'] = _nuevos_uni
+
+    # v1.28 Defensoría: subtemas fijos del perfil, garantía final por fila.
+    if cfg.get('agrupacion_estricta') and cfg.get('subtemas_fijos'):
+        ajustes_fieles = aplicar_subtemas_fijos_final(
+            rows, ajustes_fieles, km, cfg.get('subtemas_fijos'))
 
     # v1.29 (2026-11-02): garantía FINAL de coherencia por hecho. Último
     # pase antes de volcar: misma noticia (mismo grupo, mismo hecho
@@ -7465,6 +7679,11 @@ def enrich_rows_with_ai(
         _ULTIMO_RESUMEN['coherencia_subtema_por_hecho'] = _coh_sub
     if _coh_tono:
         _ULTIMO_RESUMEN['coherencia_tono_por_subtema'] = _coh_tono
+    # v1.28 Defensoría: el subtema fijo tiene la última palabra (después de
+    # la coherencia por hecho, que puede elegir otro rótulo para el bloque).
+    if cfg.get('agrupacion_estricta') and cfg.get('subtemas_fijos'):
+        ajustes_fieles = aplicar_subtemas_fijos_final(
+            rows, ajustes_fieles, km, cfg.get('subtemas_fijos'))
 
     volcar_analisis_en_filas(
         rows, mapa, etiquetas, temas,
@@ -8003,6 +8222,17 @@ _MARCA_ACTORA_PAT = re.compile(
     r'entreg[óo])\b', re.I)
 
 
+# v1.33: verbos de gestión para «sujeto de gestión» (los de _MARCA_ACTORA_PAT
+# más nombramientos, convocatorias, aperturas e inversiones). Lista aparte
+# para no ampliar las reglas que usan _marca_actora (tragedia).
+_VERBOS_GESTION_PAT = re.compile(
+    _MARCA_ACTORA_PAT.pattern[:-len(r')\b')] +
+    r'|nombr\w*|design\w*|posesion\w*|abri[oó]|abre|abrir[aá]|habilit\w*|ofrec\w*|'
+    r'implement\w*|invit\w*|radic\w*|destin\w*|invirti\w*|invierte|recuper\w*|'
+    r'renov\w*|construy\w*|instal\w*|activ[oó]|habilitar[aá]|aplicar[aá]|ejecut\w*|'
+    r'intervin\w*|interviene|desarticul\w*|captur\w*|dot[oó]|benefici\w*)\b', re.I)
+
+
 def _marca_sujeto_de_gestion(texto: str, actores: Sequence[str]) -> bool:
     """v1.31: True si un actor de la marca va seguido, a lo sumo 4 palabras
     después, de un verbo de gestión (presentó, entregó, inauguró, anunció,
@@ -8013,7 +8243,7 @@ def _marca_sujeto_de_gestion(texto: str, actores: Sequence[str]) -> bool:
     if not texto or not formas:
         return False
     mpat = '(?:' + '|'.join(re.escape(a) for a in sorted(formas, key=len, reverse=True)) + ')'
-    verbo = _MARCA_ACTORA_PAT.pattern.replace('\\b(', '(', 1)
+    verbo = _VERBOS_GESTION_PAT.pattern.replace('\\b(', '(', 1)
     pat = re.compile(r'\b' + mpat + r'\b(?:\s+\w+){0,4}?\s+' + verbo)
     # Por cláusula: la coma, el punto o el punto y coma cortan el sujeto
     # («Según datos de la Alcaldía, la empresa X inauguró…» no cuenta).
@@ -8540,6 +8770,43 @@ def _marca_emite_alerta(texto: str, actores) -> bool:
         if pat.search(nz(clausula)):
             return True
     return False
+
+
+_VERBOS_LABOR_DEFENSORIA = (
+    r'(acompa[ñn]\w*|verific\w*|medi[oó]|media|mediar\w*|advirti\w*|advierte\w*|alert\w*|'
+    r'denunci\w*|recomend\w*|present\w*|defend\w*|defiende|visit\w*|intervin\w*|interviene|'
+    r'atend\w*|atiende|asesor\w*|orient\w*|exhort\w*|instal\w*|lider\w*|logr\w*|'
+    r'gestion\w*|ayud\w*|protegi\w*|protege|document\w*|registr\w*|monitore\w*)')
+
+
+def aplicar_regla_labor_positiva(grupos, etiquetas, brand, aliases, voceros=()):
+    """v1.28 Defensoría (flag `tono_labor_positiva`): Neutro -> Positivo
+    cuando la marca o su vocera es SUJETO de su labor (acompaña, verifica,
+    advierte, denuncia vulneraciones, media, presenta un informe…) en la
+    misma cláusula, sin crítica dirigida a ella. Criterio del perfil: la
+    nota que destaca la labor de la Defensoría es Positiva. No toca Neutros
+    pegajosos. Devuelve los grupos corregidos."""
+    blancos = _con_voceros(aliases, voceros)
+    actores = [nz(x) for x in [brand] + blancos if x and len(nz(x)) >= 4]
+    if not actores:
+        return []
+    mpat = '(?:' + '|'.join(re.escape(a) for a in sorted(actores, key=len, reverse=True)) + ')'
+    pat = re.compile(r'\b' + mpat + r'\b(?:\s+\w+){0,4}?\s+' + _VERBOS_LABOR_DEFENSORIA)
+    corregidos = []
+    for g in grupos:
+        e = etiquetas.get(g.get('grupo'))
+        if not e or e.get('tono') != 'Neutro':
+            continue
+        if (e.get('flags') or {}).get('neutro_pegajoso'):
+            continue
+        texto = '%s. %s' % (g.get('titulo') or '', g.get('contexto') or g.get('texto') or '')
+        if _marca_blanco_de_critica(texto, brand, blancos):
+            continue
+        if any(pat.search(nz(c)) for c in re.split(r'[,.;:!?()\n]+', ctrl(texto))) \
+                or _marca_sujeto_de_gestion(texto, actores):
+            e['tono'] = 'Positivo'
+            corregidos.append(g.get('grupo'))
+    return corregidos
 
 
 def aplicar_regla_alerta_temprana(grupos, etiquetas, brand, aliases, voceros=()):

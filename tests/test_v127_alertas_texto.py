@@ -73,10 +73,25 @@ class TestSubtemaFijoEstricto(unittest.TestCase):
         self.assertEqual(self._aplicar('Riesgo de reclutamiento en el Cauca', 'x',
                                        'Alerta temprana en el Cauca'), 'Alertas Defensoría del Pueblo')
 
-    def test_alerta_citada_de_paso_no_aplica(self):
+    def test_alerta_en_el_texto_aplica(self):
+        # v1.28, regla del usuario: si el texto dice «alerta temprana», el
+        # subtema es el fijo (el tono sigue dependiendo de la nota).
         texto = 'Los combates ocurrieron en una zona sobre la que existía una alerta temprana.'
         self.assertEqual(self._aplicar('Combates en el Catatumbo dejan tres muertos', texto,
-                                       'Combates en el Catatumbo'), 'Combates en el Catatumbo')
+                                       'Combates en el Catatumbo'), 'Alertas Defensoría del Pueblo')
+
+    def test_palabras_sueltas_no_aplican(self):
+        texto = 'La alerta de la Policía llegó temprana, antes de los combates.'
+        self.assertEqual(self._aplicar('Combates en el Catatumbo', texto, 'Combates en el Catatumbo'),
+                         'Combates en el Catatumbo')
+
+    def test_garantia_final_por_fila(self):
+        rows = [{'Título': 'Combates en Arauca', 'CuerpoEs': 'x',
+                 'Resumen - Aclaracion': 'Hay alertas tempranas vigentes en la zona.'},
+                {'Título': 'Informe anual', 'CuerpoEs': 'La Defensoría presentó su informe.'},
+                {'Título': 'Alerta temprana en Cauca', 'is_duplicate': True}]
+        aj = az.aplicar_subtemas_fijos_final(rows, {0: 'Otro rótulo'}, {'titulo': 'Título'}, self.REGLAS)
+        self.assertEqual(aj, {0: 'Alertas Defensoría del Pueblo'})
 
     def test_modo_no_estricto_conserva_comportamiento_anterior(self):
         texto = 'Los combates ocurrieron en una zona sobre la que existía una alerta temprana.'

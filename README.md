@@ -312,3 +312,27 @@ sin TIPO/GÉNERO (este perfil no los usa) y sin tocar HORA B (8:00 a.m. /
 - **Columna texto** con la misma regla que Secretaría: más de 15
   palabras, completando con oraciones literales del Resumen -
   Aclaracion (sin inventar ni repetir el titular).
+
+## Novedades v1.28 (2026-11-02; solo Defensoría)
+
+- **Alertas Tempranas (regla del usuario)**: si el titular, el Resumen -
+  Aclaracion o el CuerpoEs dicen "alerta temprana" o "alertas tempranas"
+  (frase seguida), el subtema es "Alertas Defensoría del Pueblo". Corrige
+  la v1.27, que exigía la frase en el titular o en el subtema del modelo.
+  Se garantiza al final, por nota, después de todos los pases que tocan el
+  subtema. El tono sigue dependiendo de la nota (la Defensoría emite o
+  advierte => Positivo).
+- **Labor de la Defensoría => Positivo** (flag `tono_labor_positiva`): si
+  la Defensoría o su vocera es sujeto de su labor (acompaña, verifica,
+  advierte, denuncia vulneraciones, media, presenta un informe…) y no hay
+  crítica dirigida a ella, Neutro pasa a Positivo.
+- **Subtema del modelo protegido**: la guarda de fidelidad ya no cambia un
+  subtema con relación con la nota por un rótulo derivado del titular que
+  lo copia o empieza con verbo (caso: "Críticas por informe sobre líderes"
+  -> "Cuestionan a Iris Marín por informe incompleto"). Los rótulos de otra
+  noticia (sin palabras en común) se siguen rechazando.
+- **Traídas de Secretaría v1.33**: un solo subtema por evento grande
+  (frase distintiva repetida en al menos 3 titulares), unión de variantes
+  del mismo rótulo, más verbos de gestión (designó, nombró, abrió…) y la
+  columna texto con crédito al final del Resumen (toma las oraciones
+  anteriores).

@@ -7053,8 +7053,23 @@ def volcar_analisis_en_filas(rows: List[dict], mapa: Dict[int, int],
 # el LLM devuelva variantes, y como el subtema queda unificado antes de
 # asignar_temas, forzar_un_tema_por_subtema unifica también el Tema_IA.
 # ============================================================================
-def aplicar_subtemas_fijos(grupos, etiquetas, reglas):
-    """Fija subtemas por frase del perfil. Devuelve nº de grupos cambiados."""
+def _frase_contigua(frase: str, texto: str) -> bool:
+    """True si las palabras de `frase` aparecen seguidas en `texto`
+    (tolerante a singular/plural y mayúsculas/acentos)."""
+    f = [raiz(w) for w in words(frase)]
+    t = [raiz(w) for w in words(texto)]
+    n = len(f)
+    return bool(n) and any(t[i:i + n] == f for i in range(len(t) - n + 1))
+
+
+def aplicar_subtemas_fijos(grupos, etiquetas, reglas, estricta=False):
+    """Fija subtemas por frase del perfil. Devuelve nº de grupos cambiados.
+
+    v1.27 (agrupación estricta): la frase debe ser el HECHO PRINCIPAL, no
+    una mención de paso: va seguida en algún titular del grupo, o el
+    subtema que el modelo ya le dio la contiene. Antes bastaba con que sus
+    palabras aparecieran en cualquier parte del cuerpo, aunque fuera como
+    antecedente («…una zona sobre la que existía una alerta temprana»)."""
     limpias = []
     for r in (reglas or []):
         if not isinstance(r, dict):
@@ -7078,9 +7093,17 @@ def aplicar_subtemas_fijos(grupos, etiquetas, reglas):
             str(g.get("contexto_marca") or ""),
         ])
         tallos = {raiz(w) for w in words(texto)}
+        titulos = [str(g.get("titulo") or "")] + [str(t) for t in (g.get("titulos_alt") or [])]
+        actual = str(etiquetas[gid].get("sub_tema") or "")
         for contiene, subtema in limpias:
             pide = {raiz(w) for w in words(contiene)}
-            if pide and pide <= tallos:
+            if estricta:
+                aplica = (any(_frase_contigua(contiene, t) for t in titulos)
+                          or _frase_contigua(contiene, actual)
+                          or nz(actual) == nz(subtema))
+            else:
+                aplica = bool(pide) and pide <= tallos
+            if aplica:
                 if etiquetas[gid].get("sub_tema") != subtema:
                     etiquetas[gid]["sub_tema"] = subtema
                     cambios += 1
@@ -7113,6 +7136,7 @@ def enrich_rows_with_ai(
         'clasificar_tipo_genero': bool(extra.get('clasificar_tipo_genero')),
         'tono_distrito_positivo': bool(extra.get('tono_distrito_positivo')),
         'agrupacion_estricta': bool(extra.get('agrupacion_estricta')),
+        'tono_alertas_tempranas': bool(extra.get('tono_alertas_tempranas')),
         'api_key': api_key,
         'typesafe_api_key': extra.get('typesafe_api_key') or '',
         'typesafe_model': extra.get('typesafe_model') or 'jev-latest',
@@ -7219,7 +7243,8 @@ def enrich_rows_with_ai(
     # v1.5: subtemas fijos del perfil (ver aplicar_subtemas_fijos). Antes de
     # tono y tema para que el voto por subtema y forzar_un_tema_por_subtema
     # trabajen ya con el subtema unificado.
-    fijos = aplicar_subtemas_fijos(grupos, etiquetas, cfg.get('subtemas_fijos'))
+    fijos = aplicar_subtemas_fijos(grupos, etiquetas, cfg.get('subtemas_fijos'),
+                                   estricta=bool(cfg.get('agrupacion_estricta')))
     if fijos and progress_callback:
         progreso(93, 'Sub-temas fijos del perfil: %d' % fijos)
     if (cambios or extra_uni or extra_llm or ajenos or extra_ancla) and progress_callback:
@@ -7387,6 +7412,15 @@ def enrich_rows_with_ai(
     # v1.24/v1.28 (2026-11-02): homónimo extranjero (ver
     # aplicar_regla_homonimo_extranjero). Corre después de Jev y junto
     # al decreto/distrito: una Defensoría de otro país no es el cliente.
+    # v1.27 Defensoría: tono de las Alertas Tempranas (ver
+    # aplicar_regla_alerta_temprana). Antes del homónimo extranjero, para
+    # que la alerta de una Defensoría de otro país siga bajando a Neutro.
+    if cfg.get('tono_alertas_tempranas'):
+        _alertas = aplicar_regla_alerta_temprana(
+            grupos, etiquetas, brand, aliases, voceros=cfg.get('voceros') or [])
+        if _alertas:
+            _ULTIMO_RESUMEN['tono_alertas_tempranas'] = _alertas
+
     _bajados_homonimo = aplicar_regla_homonimo_extranjero(
         grupos, etiquetas, brand, aliases, voceros=cfg.get('voceros') or [])
     if _bajados_homonimo:
@@ -8474,6 +8508,62 @@ def _contiene_frase(toks, frase):
     if n == 1:
         return partes[0] in toks
     return any(toks[k:k + n] == partes for k in range(len(toks) - n + 1))
+
+
+# ============================================================================
+# v1.27 Defensoría (2026-11-02): tono de las Alertas Tempranas (flag de
+# perfil `tono_alertas_tempranas`). Criterio: depende de la nota.
+#   - La Defensoría (o su vocera) emite, actualiza o advierte mediante una
+#     Alerta Temprana: es su labor de prevención => Positivo.
+#   - La alerta solo se cita como dato o antecedente => no se toca (lo
+#     decide el modelo; normalmente Neutro).
+#   - Crítica dirigida a la Defensoría o a su vocera => no se sube (el
+#     Negativo del modelo se respeta).
+# Que el hecho alertado sea grave (violencia, reclutamiento) o que otra
+# entidad haya ignorado la alerta no es crítica a la Defensoría.
+# ============================================================================
+_ALERTA_TEMPRANA_PAT = re.compile(r'\balertas?\s+tempranas?\b')
+_VERBOS_ALERTA = (r'(emiti\w*|emite\w*|expidi\w*|expide\w*|lanz\w*|public\w*|'
+                  r'advirti\w*|advierte\w*|alert\w*|activ\w*|actualiz\w*|reiter\w*|'
+                  r'present\w*|elev\w*|prend\w*)')
+
+
+def _marca_emite_alerta(texto: str, actores) -> bool:
+    """True si un actor de la marca es sujeto (≤4 palabras antes, misma
+    cláusula) de un verbo de emitir/advertir/alertar."""
+    formas = [a for a in (actores or []) if a and len(a) >= 2]
+    if not texto or not formas:
+        return False
+    mpat = '(?:' + '|'.join(re.escape(a) for a in sorted(formas, key=len, reverse=True)) + ')'
+    pat = re.compile(r'\b' + mpat + r'\b(?:\s+\w+){0,4}?\s+' + _VERBOS_ALERTA)
+    for clausula in re.split(r'[,.;:!?()\n]+', ctrl(texto)):
+        if pat.search(nz(clausula)):
+            return True
+    return False
+
+
+def aplicar_regla_alerta_temprana(grupos, etiquetas, brand, aliases, voceros=()):
+    """Sube a Positivo las notas en que la marca emite o advierte mediante
+    una Alerta Temprana, sin crítica dirigida a ella. Devuelve los grupos
+    corregidos."""
+    blancos = _con_voceros(aliases, voceros)
+    actores = [nz(x) for x in [brand] + blancos if x and len(nz(x)) >= 2]
+    corregidos = []
+    for g in grupos:
+        e = etiquetas.get(g.get('grupo'))
+        if not e or e.get('tono') == 'Positivo':
+            continue
+        titulo = g.get('titulo') or ''
+        texto = '%s. %s' % (titulo, g.get('contexto') or g.get('texto') or '')
+        if not _ALERTA_TEMPRANA_PAT.search(nz(texto)):
+            continue
+        if not _marca_emite_alerta(texto, actores):
+            continue
+        if _marca_blanco_de_critica(texto, brand, blancos):
+            continue
+        e['tono'] = 'Positivo'
+        corregidos.append(g.get('grupo'))
+    return corregidos
 
 
 def aplicar_regla_homonimo_extranjero(grupos, etiquetas, brand, aliases, voceros=()):

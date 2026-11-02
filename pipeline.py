@@ -61,6 +61,63 @@ AI_COLUMNS_AFTER_AUDIENCIA = ["Tono_IA", "Tema_IA", "Subtema_IA"]
 CONTEXTO_ANALIZADO_COL = "Contexto analizado"
 
 
+
+TEXTO_MIN_PALABRAS = 16  # v1.30: "más de 15 palabras"
+
+
+def _oraciones(texto: str):
+    return [o.strip() for o in re.split(r"(?<=[.!?…])\s+", " ".join(str(texto or "").split())) if o.strip()]
+
+
+def texto_con_minimo(texto: str, resumen: str, titulo: str = "",
+                     minimo: int = TEXTO_MIN_PALABRAS) -> str:
+    """Columna «texto» con más de 15 palabras (v1.30, pedido del usuario).
+
+    Si el texto derivado de Contexto analizado tiene menos de `minimo`
+    palabras, se completa con oraciones COMPLETAS y LITERALES del
+    «Resumen - Aclaracion» de la misma fila, sin agregar palabras que no
+    estén ahí: primero las oraciones que siguen al texto dentro del
+    resumen (si el texto aparece en él); si no aparece, las primeras
+    oraciones del resumen que no estén ya incluidas. Se omite el titular
+    (igual que en el cálculo original). Si el resumen no alcanza, queda
+    lo que haya: nunca se rellena con texto inventado.
+    """
+    texto = " ".join(str(texto or "").split())
+    if len(texto.split()) >= minimo:
+        return texto
+    res = " ".join(str(resumen or "").split())
+    titulo = " ".join(str(titulo or "").split())
+    if titulo:
+        res = " ".join(res.replace(titulo, " ").split())
+    if not res:
+        return texto
+    oraciones = _oraciones(res)
+    if not texto:
+        inicio, partes = 0, []
+    else:
+        partes = [texto]
+        inicio = None
+        pos = res.find(texto)
+        if pos >= 0:
+            fin = pos + len(texto)
+            acum = 0
+            for k, o in enumerate(oraciones):
+                acum = res.find(o, acum)
+                if acum >= fin or acum + len(o) > fin:
+                    inicio = k if acum >= fin else k + 1
+                    break
+                acum += len(o)
+            if inicio is None:
+                inicio = len(oraciones)
+        else:
+            inicio = 0
+    for o in oraciones[inicio:]:
+        if len(" ".join(partes).split()) >= minimo:
+            break
+        if o in " ".join(partes):
+            continue
+        partes.append(o)
+    return " ".join(" ".join(partes).split())
 def _audiencia_antes_de_tier(cols) -> List[str]:
     """v4.52: mueve "Audiencia" justo antes de "Tier" (si ambas están).
 
@@ -1143,6 +1200,7 @@ def construir_ai_config_custom(brand, alias_txt, voceros_txt, criterio,
                                clasificar_tipo_genero=False,
                                tono_distrito_positivo=False,
                                agrupacion_estricta=False,
+                               tono_alertas_tempranas=False,
                                formato_boletin=False,
                                hora_boletin_corte_manana=13,
                                hora_boletin_corte_tarde=18,
@@ -1174,6 +1232,7 @@ def construir_ai_config_custom(brand, alias_txt, voceros_txt, criterio,
         "clasificar_tipo_genero": bool(clasificar_tipo_genero),
         "tono_distrito_positivo": bool(tono_distrito_positivo),
         "agrupacion_estricta": bool(agrupacion_estricta),
+        "tono_alertas_tempranas": bool(tono_alertas_tempranas),
         "formato_boletin": bool(formato_boletin),
         "hora_boletin_corte_manana": hora_boletin_corte_manana if (isinstance(hora_boletin_corte_manana, int)
             and not isinstance(hora_boletin_corte_manana, bool) and 0 <= hora_boletin_corte_manana <= 23) else 13,
@@ -1501,7 +1560,13 @@ def _write_xlsx_rows(ws, rows, km, n, step, progress, fmt_link, fmt_plain_hlink,
                     ctx_v = row.get(CONTEXTO_ANALIZADO_COL) or ""
                     tit_v = row.get("Título") or ""
                     base = str(ctx_v).replace(str(tit_v), "") if str(tit_v) else str(ctx_v)
-                    ws.write(excel_row, cidx, " ".join(base.split()))
+                    # v1.27 (igual que Secretaría v1.30): más de 15 palabras,
+                    # completando con oraciones LITERALES del Resumen -
+                    # Aclaracion (sin inventar).
+                    base = texto_con_minimo(" ".join(base.split()),
+                                            row.get("Resumen - Aclaracion") or "",
+                                            str(tit_v or ""))
+                    ws.write(excel_row, cidx, base)
                 else:
                     ws.write_blank(excel_row, cidx, None)
                 continue

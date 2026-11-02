@@ -287,3 +287,28 @@ sin TIPO/GÉNERO (este perfil no los usa) y sin tocar HORA B (8:00 a.m. /
   de `km` en el volcado.
 - Se quita la sección "📝 Resumen para informe" y su módulo
   `resumen_informe.py` (pedido del usuario).
+
+## Novedades v1.27 (2026-11-02; solo Defensoría; incluye la v1.26)
+
+- **Criterio de tono del perfil** (`criterio_custom`), pensado para un
+  monitoreo de la Defensoría: Positivo si la nota destaca su labor
+  (alertas, advertencias, denuncias de vulneraciones, acompañamiento,
+  mediación, informes, defensa de derechos); Negativo si critica a la
+  entidad, la defensora o sus funcionarios, o hay corrupción o
+  investigaciones; Neutro si la mención es de paso o es un dato más. Los
+  hechos graves que la Defensoría alerta no hacen Negativa la nota, y si
+  otra entidad ignora su alerta la crítica es para esa entidad.
+- **Alertas Tempranas: depende de la nota** (flag
+  `tono_alertas_tempranas`): si la Defensoría o su vocera emite o
+  advierte con una alerta, Positivo (regla determinista, salvo crítica
+  dirigida a la Defensoría); si la alerta solo se cita como antecedente,
+  lo decide el modelo (normalmente Neutro).
+- **Subtema fijo de Alertas, más preciso** (con agrupación estricta): se
+  aplica si "alerta temprana" va seguida en el titular o si el modelo ya
+  identificó la alerta como hecho principal. Antes bastaba con que
+  "alerta" y "temprana" aparecieran en cualquier parte del cuerpo, así
+  que una nota que citaba una alerta de paso quedaba en "Alertas
+  Defensoría del Pueblo".
+- **Columna texto** con la misma regla que Secretaría: más de 15
+  palabras, completando con oraciones literales del Resumen -
+  Aclaracion (sin inventar ni repetir el titular).

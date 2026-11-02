@@ -250,3 +250,65 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
   texto plano, sin hipervínculo (cualquier capitalización). Link
   Nota, Link Ext, Web Ext y Audio no cambian.
 - Secretaría no se toca (salvo el motor compartido, que es idéntico).
+
+## Novedades v1.26 (2026-11-02; solo Defensoría)
+
+Se replican las mejoras de tono y subtema de Secretaría (v1.29 a v1.31),
+sin TIPO/GÉNERO (este perfil no los usa) y sin tocar HORA B (8:00 a.m. /
+4:00 p.m., cortes 8 y 16).
+
+- **Agrupación estricta** (`agrupacion_estricta: true` en el perfil): dos
+  noticias comparten subtema SOLO con evidencia: título igual o muy
+  parecido, Contexto analizado con pasajes literales compartidos o
+  CuerpoEs igual o muy parecido. Se omiten las uniones por parecido del
+  rótulo y por "ancla" temática; los pases finales por título usan el
+  mismo umbral estricto. Las notas que no se parecen a otras conservan
+  su subtema. La regla fija de Alertas Tempranas ("Alertas Defensoría
+  del Pueblo") se mantiene.
+- **Coherencia por noticia**: misma noticia => mismo subtema (si hay un
+  rótulo fiel a todas) y mismo tono; noticias distintas con el mismo
+  subtema conservan cada una su tono.
+- **Tono enfocado en marca, alias y voceros**:
+  - Las reglas de "crítica dirigida a la marca" ahora cuentan a la
+    vocera (Iris Marín): antes una crítica a ella podía bajar a Neutro;
+    y "cuestionan a la Defensoría" no coincidía por el artículo.
+  - El patrón de "crítica" no exigía inicio de palabra ("atac" dentro
+    de "contratación").
+  - Si la marca o su vocera es sujeto de una gestión ("la Defensoría
+    presentó…"), el Positivo no baja a Neutro por una sola mención.
+  - Empates de tono dentro de la misma noticia: se deciden con la
+    evidencia del texto en vez de ir siempre a Neutro.
+- **Más ágil con el mismo modelo**: la consolidación solo revisa los
+  grupos con evidencia (sin llamada si un subtema ya es fiel a todos), y
+  la auditoría Jev corre en paralelo con el etiquetado.
+- Validador: acepta nombres propios de proyecto/programa como subtema
+  aunque estén en el titular. Ejemplos del prompt corregidos (enseñaban
+  dos subtemas distintos para la misma noticia). Corrección del NameError
+  de `km` en el volcado.
+- Se quita la sección "📝 Resumen para informe" y su módulo
+  `resumen_informe.py` (pedido del usuario).
+
+## Novedades v1.27 (2026-11-02; solo Defensoría; incluye la v1.26)
+
+- **Criterio de tono del perfil** (`criterio_custom`), pensado para un
+  monitoreo de la Defensoría: Positivo si la nota destaca su labor
+  (alertas, advertencias, denuncias de vulneraciones, acompañamiento,
+  mediación, informes, defensa de derechos); Negativo si critica a la
+  entidad, la defensora o sus funcionarios, o hay corrupción o
+  investigaciones; Neutro si la mención es de paso o es un dato más. Los
+  hechos graves que la Defensoría alerta no hacen Negativa la nota, y si
+  otra entidad ignora su alerta la crítica es para esa entidad.
+- **Alertas Tempranas: depende de la nota** (flag
+  `tono_alertas_tempranas`): si la Defensoría o su vocera emite o
+  advierte con una alerta, Positivo (regla determinista, salvo crítica
+  dirigida a la Defensoría); si la alerta solo se cita como antecedente,
+  lo decide el modelo (normalmente Neutro).
+- **Subtema fijo de Alertas, más preciso** (con agrupación estricta): se
+  aplica si "alerta temprana" va seguida en el titular o si el modelo ya
+  identificó la alerta como hecho principal. Antes bastaba con que
+  "alerta" y "temprana" aparecieran en cualquier parte del cuerpo, así
+  que una nota que citaba una alerta de paso quedaba en "Alertas
+  Defensoría del Pueblo".
+- **Columna texto** con la misma regla que Secretaría: más de 15
+  palabras, completando con oraciones literales del Resumen -
+  Aclaracion (sin inventar ni repetir el titular).

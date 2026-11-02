@@ -16,10 +16,9 @@ from pipeline import (process_dossier, leer_columnas_xlsx, sugerir_columna,
                       renombrar_columnas_xlsx, construir_ai_config_custom,
                       LimiteFilasError, ErrorSheetsAnalizadas,
                       cargar_ids_analizados_desde_sheets)
-from resumen_informe import render_resumen_tab
 
 # Versión visible de la app (se muestra en el encabezado). Actualizar en cada release.
-APP_VERSION = "v1.25"
+APP_VERSION = "v1.27"
 
 # v1.2: cliente fijo de este repo. Se muestra en la pantalla de
 # contraseña y en un aviso permanente tras ingresar, para que las
@@ -561,6 +560,8 @@ def main():
                             st.session_state["_perfil_subtemas_fijos"] = _perfil_actual.get("subtemas_fijos") or []
                             st.session_state["_perfil_clasificar_tipo_genero"] = bool(_perfil_actual.get("clasificar_tipo_genero"))
                             st.session_state["_perfil_tono_distrito_positivo"] = bool(_perfil_actual.get("tono_distrito_positivo"))
+                            st.session_state["_perfil_agrupacion_estricta"] = bool(_perfil_actual.get("agrupacion_estricta"))
+                            st.session_state["_perfil_tono_alertas_tempranas"] = bool(_perfil_actual.get("tono_alertas_tempranas"))
                             st.session_state["_perfil_formato_boletin"] = bool(_perfil_actual.get("formato_boletin"))
                             _cm_p = _perfil_actual.get("hora_boletin_corte_manana")
                             _ct_p = _perfil_actual.get("hora_boletin_corte_tarde")
@@ -578,6 +579,8 @@ def main():
                     st.session_state["_perfil_subtemas_fijos"] = []
                     st.session_state["_perfil_clasificar_tipo_genero"] = False
                     st.session_state["_perfil_tono_distrito_positivo"] = False
+                    st.session_state["_perfil_agrupacion_estricta"] = False
+                    st.session_state["_perfil_tono_alertas_tempranas"] = False
                     st.session_state["_perfil_formato_boletin"] = False
                     st.session_state["_perfil_hora_boletin_corte_manana"] = 13
                     st.session_state["_perfil_hora_boletin_corte_tarde"] = 18
@@ -795,6 +798,8 @@ def main():
                                         "subtemas_fijos": st.session_state.get("_perfil_subtemas_fijos") or [],
                                         "clasificar_tipo_genero": bool(st.session_state.get("_perfil_clasificar_tipo_genero")),
                                         "tono_distrito_positivo": bool(st.session_state.get("_perfil_tono_distrito_positivo")),
+                                        "agrupacion_estricta": bool(st.session_state.get("_perfil_agrupacion_estricta")),
+                                        "tono_alertas_tempranas": bool(st.session_state.get("_perfil_tono_alertas_tempranas")),
                                         "formato_boletin": bool(st.session_state.get("_perfil_formato_boletin")),
                                         "hora_boletin_corte_manana": st.session_state.get("_perfil_hora_boletin_corte_manana", 13),
                                         "hora_boletin_corte_tarde": st.session_state.get("_perfil_hora_boletin_corte_tarde", 18),
@@ -833,6 +838,8 @@ def main():
                                     "subtemas_fijos": st.session_state.get("_perfil_subtemas_fijos") or [],
                                     "clasificar_tipo_genero": bool(st.session_state.get("_perfil_clasificar_tipo_genero")),
                                     "tono_distrito_positivo": bool(st.session_state.get("_perfil_tono_distrito_positivo")),
+                                    "agrupacion_estricta": bool(st.session_state.get("_perfil_agrupacion_estricta")),
+                                    "tono_alertas_tempranas": bool(st.session_state.get("_perfil_tono_alertas_tempranas")),
                                     "formato_boletin": bool(st.session_state.get("_perfil_formato_boletin")),
                                     "hora_boletin_corte_manana": st.session_state.get("_perfil_hora_boletin_corte_manana", 13),
                                     "hora_boletin_corte_tarde": st.session_state.get("_perfil_hora_boletin_corte_tarde", 18),
@@ -1058,11 +1065,16 @@ def main():
                             tone_pkl_bytes=None,
                             theme_pkl_bytes=None,
                             model=modelo_sel_c,
-                            criterio_texto=criterio_custom_c,
+                            # v1.26: si no se escribe un criterio aquí, se usa
+                            # el del perfil cargado (como guía y subtemas fijos).
+                            criterio_texto=(criterio_custom_c or "").strip()
+                            or (st.session_state.get("criterio_custom_input") or ""),
                             guia_subtema=st.session_state.get("_perfil_guia_subtema") or "",
                             subtemas_fijos=st.session_state.get("_perfil_subtemas_fijos") or [],
                             clasificar_tipo_genero=bool(st.session_state.get("_perfil_clasificar_tipo_genero")),
                             tono_distrito_positivo=bool(st.session_state.get("_perfil_tono_distrito_positivo")),
+                            agrupacion_estricta=bool(st.session_state.get("_perfil_agrupacion_estricta")),
+                            tono_alertas_tempranas=bool(st.session_state.get("_perfil_tono_alertas_tempranas")),
                             formato_boletin=bool(st.session_state.get("_perfil_formato_boletin")),
                             hora_boletin_corte_manana=st.session_state.get("_perfil_hora_boletin_corte_manana", 13),
                             hora_boletin_corte_tarde=st.session_state.get("_perfil_hora_boletin_corte_tarde", 18),
@@ -1221,21 +1233,6 @@ def main():
         finally:
             st.session_state["procesando"] = False
         st.rerun()
-
-    # Resumen para informe (v1.0, nuevo en estos repos): resubir el
-    # xlsx corregido y generar el texto de dos párrafos. Se muestra
-    # siempre fuera del procesamiento, también en la vista de
-    # resultados, y usa el perfil fijo de este cliente.
-    if not _procesando:
-        try:
-            _perfil_resumen = cargar_perfil("defensoria_del_pueblo")
-        except Exception:
-            _perfil_resumen = {"nombre": "Defensoría del Pueblo", "aliases": []}
-        st.divider()
-        render_resumen_tab(
-            _perfil_resumen.get("nombre") or "Defensoría del Pueblo",
-            _perfil_resumen.get("aliases") or [],
-        )
 
     # El pie solo se muestra fuera del procesamiento.
     if not _procesando:

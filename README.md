@@ -77,7 +77,7 @@ Streamlit) y la interfaz en `app.py` (`render_resumen_tab`).
 
 En la pestaña estándar, «Motor de clasificación» ofrece dos opciones:
 
-- **OpenAI (actual)**: el motor de siempre (gpt-6-luna + Jev + PKL). Es el valor por defecto y no cambia.
+- **OpenAI Luna**: el motor anterior (gpt-6-luna + Jev + PKL). Opcional; **Claude Haiku es el valor por defecto**.
 - **Claude Haiku (agente + revisor)**: un agente Claude Haiku (`motor_haiku.py`, Claude Agent SDK) clasifica Tono_IA, Subtema_IA y, si se pide, Tema_IA (de la lista de Temas cuando se elige una). Al final un subagente `revisor-subtemas` revisa la consistencia. La limpieza, el Contexto analizado, el agrupamiento, las guardas deterministas de tono y subtema y el layout del Excel son los mismos. No usa PKL ni Jev.
 
 El motor Haiku se factura a la clave de Claude Platform. Agrega en los Secrets de Streamlit:

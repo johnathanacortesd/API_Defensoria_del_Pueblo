@@ -579,6 +579,7 @@ TONO: Positivo, Neutro o Negativo, solo desde la perspectiva del cliente.
 - Positivo: gestiones a favor, logros, reconocimientos, inversiones u obras del cliente.
 - Negativo: críticas, denuncias, sanciones o afectación directa al cliente.
 - Neutro: menciones informativas sin efecto claro para el cliente.
+- Que la noticia trate de un hecho malo (atentado, amenaza, violencia, crisis) NO la hace Negativa: Negativo es solo si se critica, denuncia o afecta al cliente mismo. Si el cliente o su vocero rechaza, alerta, se pronuncia o expresa preocupación por ese hecho, el tono es Neutro. Ej.: "La Defensoría rechazó las amenazas contra la prensa" -> Neutro.
 Si el pedido trae un bloque <criterio_tono>, ese criterio del cliente MANDA: aplícalo a cada fila por encima de estas definiciones y pásaselo completo y literal al ayudante revisor-subtemas cuando lo lances.
 
 Consistencia, en este orden:
@@ -626,7 +627,9 @@ PROMPT_REVISOR = (
     "- Si no lo es: déjalas separadas y haz cada subtema lo bastante específico (3 a 7 palabras). "
     "Los grupos 'posible_sobreagrupacion' casi siempre son hechos distintos con un subtema genérico.\n"
     "Nunca fusiones solo porque los subtemas comparten palabras. Tono solo Positivo, Neutro o "
-    "Negativo, para el cliente; si te pasan un CRITERIO DEL TONO, decide con él.\n"
+    "Negativo, para el cliente; si te pasan un CRITERIO DEL TONO, decide con él. Un hecho malo "
+    "(atentado, amenaza, violencia) que el cliente rechaza o sobre el que alerta es Neutro, no "
+    "Negativo; Negativo solo si se critica o afecta al cliente.\n"
     "Responde SOLO con JSON compacto, sin texto alrededor: "
     '{"correcciones":[{"id":"...","subtema":"...","tono":"..."}],'
     '"grupos":[{"grupo":0,"mismo_hecho":true,"razon":"una línea"}]}. '

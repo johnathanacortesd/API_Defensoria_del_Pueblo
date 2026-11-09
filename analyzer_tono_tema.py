@@ -1250,6 +1250,14 @@ _EVENTO_NOMBRE = {
     'simposio', 'jornada', 'conversatorio', 'concurso', 'premio', 'asamblea',
     'inauguracion', 'lanzamiento', 'presentacion',
 }
+# 2026-11-09: nombres de programa, plan u operación («Plan Motos y Vehículos
+# en Engativá», «Operación Kratos», «Inspecciones de Convivencia y Paz»)
+# nombran el hecho: no son una lista de nombres sin hecho. Solo se usa en
+# `_es_subtema_sin_hecho` (no cambia la detección de copia del titular).
+_PROGRAMA_NOMBRE = {
+    'plan', 'programa', 'operacion', 'operativo', 'estrategia', 'proyecto', 'campana',
+    'inspeccion', 'inspecciones', 'linea', 'ruta', 'corredor', 'mision', 'mesa',
+}
 
 
 def _subtema_vago(sub_tema: str) -> bool:
@@ -1439,7 +1447,7 @@ def _es_subtema_sin_hecho(sub_tema: str) -> bool:
         return False
     if all(w in _LLAMADO_FUNCIONAL for w in contenido):
         return True
-    if any(w in _EVENTO_NOMBRE for w in contenido):
+    if any(w in _EVENTO_NOMBRE or w in _PROGRAMA_NOMBRE for w in contenido):
         return False
     # Lista de nombres: cada palabra de contenido va en mayúscula inicial
     # (o sigla) en el texto ORIGINAL, sin ningún sustantivo en minúscula.
@@ -7240,6 +7248,11 @@ def reparar_copias_finales(cfg: dict, grupos: Sequence[dict],
             # del motor (verbo inicial en cualquier forma, extracto, 3-7).
             _mal += _forma_haiku(_s, _g.get('titulo') or '',
                                           _g.get('contexto_marca') or '')
+        if _mal and _es_nombre_de_tema(_s):
+            # 2026-11-09: el nombre propio de un programa, plan u operación
+            # («Plan Motos y Vehículos en Engativá», «Jóvenes a la E») ES el
+            # subtema aunque aparezca en el titular o sea corto: no se repara.
+            _mal = []
         if _mal:
             # v4.63: una llamada o lista de nombres tampoco se exporta,
             # aunque no copie el titular: va a la misma reformulación.
@@ -7260,6 +7273,8 @@ def reparar_copias_finales(cfg: dict, grupos: Sequence[dict],
         if _haiku_mode:
             _malf += _forma_haiku(_s, _tit, rows[_i].get('Contexto analizado') or ''
                                            if _i < len(rows) else '')
+        if _malf and _es_nombre_de_tema(_s):
+            _malf = []
         if _malf:
             fallos_fila.append({'grupo': 900000 + _i, 'titulo': _tit,
                                 'texto': _txt, 'sub_tema': _s,
@@ -7353,8 +7368,19 @@ def reparar_copias_finales(cfg: dict, grupos: Sequence[dict],
             etiquetas[_gid]['sub_tema'] = _nuevo
             reparados_ok += 1
         else:
-            etiquetas[_gid]['sub_tema'] = _subtema_especifico(
-                _f['titulo'], [_f.get('texto') or ''])
+            _resp = _subtema_especifico(_f['titulo'], [_f.get('texto') or ''])
+            # 2026-11-09: el respaldo sale de recortar el titular o el texto.
+            # Si el recorte queda peor que el rótulo original (empieza con
+            # verbo, trae un verbo conjugado o es otro extracto), se conserva
+            # el original: nunca se cambia un rótulo por uno peor.
+            _base_r = [x.split('(')[0] for x in validar(_resp, 'Neutro', [_f['titulo']])] if _resp else ['vacio']
+            _resp_malo = any(x in _base_r for x in ('vacio', 'copia_titular', 'subtema_sin_hecho',
+                                                    'verbo_inicial', 'preposicion_inicial',
+                                                    'clausula_verbal', 'inicio_pronombre'))
+            if not _resp_malo and _haiku_mode:
+                _resp_malo = bool(_forma_haiku(_resp, _f['titulo'],
+                                               (grupo_por_id.get(_gid) or {}).get('contexto_marca') or ''))
+            etiquetas[_gid]['sub_tema'] = _f['sub_tema'] if _resp_malo else _resp
             sin_reparar += 1
     for _f in fallos_fila:
         _i = _f['_fila']
@@ -7733,6 +7759,7 @@ def _titulo_sin_cola(titulo: str) -> str:
 SIM_NOTICIA_FINAL = 0.50
 
 SIM_NOTICIA_PROMEDIO = 0.35
+SIM_PISO_PASAJE = 0.20      # parecido mínimo del texto para unir por pasaje literal
 
 PASAJE_PALABRAS = 8
 
@@ -7851,7 +7878,20 @@ def noticias_por_evidencia(rows: List[dict], mapa: Dict[int, int],
     # PASAJE_PALABRAS palabras (sin la marca) con 4+ palabras de contenido
     # une si trae una cifra o si son dos pasajes distintos. Mismo veto de
     # nombre propio entre bloques.
+    # 2026-11-09 (caso «Jardín Olarte»): el pie fijo del medio («Pulzo.com se
+    # escribe con Z», «El artículo fue curado por… Portal Bogotá») también es
+    # un pasaje literal compartido y unía notas que no tienen nada que ver.
+    # Dos guardas: los pasajes entre notas del MISMO medio no cuentan (la
+    # misma nota republicada ya se une por titular o por cuerpo), y dos notas
+    # solo se unen por pasaje si además sus textos se parecen
+    # (coseno >= SIM_PISO_PASAJE). Nunca se agrupa porque sí.
+    S_txt = None
+    pos_txt = {i: k for k, i in enumerate(filas)}
+    medio_de = {i: nz(str(rows[i].get(km.get('medio', 'Medio')) or rows[i].get('Medio') or ''))
+                for i in filas}
     if len(filas) > 1:
+        S_txt = matriz_similitud([texto_noticia(tit[i], cuerpo[i], ctx[i]) for i in filas],
+                                 excluir=tokens_marca(brand, aliases, voceros))
         excl_n = {nz(x) for x in excl}
         idx_pasaje = defaultdict(set)
         for i in filas:
@@ -7879,6 +7919,8 @@ def noticias_por_evidencia(rows: List[dict], mapa: Dict[int, int],
             ids = sorted(por_raiz.values())
             for a in range(len(ids)):
                 for b in range(a + 1, len(ids)):
+                    if medio_de[ids[a]] and medio_de[ids[a]] == medio_de[ids[b]]:
+                        continue        # pie o plantilla del mismo medio
                     c = comparten[(ids[a], ids[b])]
                     c[0] += 1
                     c[1] = c[1] or cifra
@@ -7893,6 +7935,8 @@ def noticias_por_evidencia(rows: List[dict], mapa: Dict[int, int],
             ri, rj = find(i), find(j)
             if ri == rj:
                 continue
+            if float(S_txt[pos_txt[i], pos_txt[j]]) < SIM_PISO_PASAJE:
+                continue                # comparten una frase, no la noticia
             bi, bj = miembros_p[ri], miembros_p[rj]
             if conflicto_entre_bloques([tit[a] for a in bi[:12]], ' '.join(cuerpo[a][:3000] for a in bi[:6]),
                                        [tit[b] for b in bj[:12]], ' '.join(cuerpo[b][:3000] for b in bj[:6]),
@@ -7906,9 +7950,8 @@ def noticias_por_evidencia(rows: List[dict], mapa: Dict[int, int],
     # Similitud textual entre bloques (enlace promedio, sin encadenar).
     if len(filas) > 1:
         import numpy as np
-        S = matriz_similitud([texto_noticia(tit[i], cuerpo[i], ctx[i]) for i in filas],
-                             excluir=tokens_marca(brand, aliases, voceros))
-        pos = {i: k for k, i in enumerate(filas)}
+        S = S_txt
+        pos = pos_txt
         ai, bi_ = np.where(np.triu(S, 1) >= SIM_NOTICIA_FINAL)
         pares = [(float(S[a, b]), filas[a], filas[b]) for a, b in zip(ai, bi_)]
         pares.sort(reverse=True)

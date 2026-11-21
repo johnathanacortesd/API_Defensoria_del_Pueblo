@@ -97,3 +97,15 @@ def test_lectura_de_la_hoja_csv(tmp_path):
     assert [r['subtema'] for r in refs] == ['Reclutamiento en el Cauca']
     ids2, refs2 = pipeline.cargar_hoja_analizadas(str(p), con_referencias=False)
     assert ids2 == ids and refs2 == []
+
+
+def test_fecha_informe_manda_sobre_fecha():
+    # La hoja trae FECHA (de la nota) y FECHA INFORME (del boletín): manda
+    # FECHA INFORME. Una nota vieja reportada hoy sí cuenta; una nota de hoy
+    # reportada hace un mes no.
+    viejo = (datetime.now() - timedelta(days=40)).strftime('%d/%m/%Y')
+    cab = ['ID', 'FECHA', 'TÍTULO', 'RESUMEN', 'TEMA', 'FECHA INFORME']
+    refs = mc.referencias_de_tabla(cab, [
+        ['1', viejo, 'Defensoría alerta por reclutamiento de menores en el Cauca', '', 'Reclutamiento', HOY],
+        ['2', HOY, 'Defensoría visita la cárcel La Modelo de Bogotá', '', 'Visita a La Modelo', viejo]])
+    assert [r['subtema'] for r in refs] == ['Reclutamiento']

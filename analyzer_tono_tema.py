@@ -7401,6 +7401,50 @@ def reparar_copias_finales(cfg: dict, grupos: Sequence[dict],
     return ajustes
 
 
+def anclar_subtemas_hoja(rows: List[dict], km: dict, referencias: list,
+                         mapa: Optional[dict] = None) -> int:
+    """v1.30: una noticia del dossier que es la MISMA noticia que una de la
+    hoja de notas analizadas (mismo TÍTULO o casi, o mismo RESUMEN) retoma
+    su TEMA como Subtema_IA. Solo cambian la fila que coincide y las de su
+    misma noticia en esta corrida (mismo grupo de `mapa` o mismo titular):
+    nada se contagia por compartir un subtema automático. El tono no se
+    toca. Devuelve cuántas filas cambiaron."""
+    import memoria_cliente
+    if not referencias:
+        return 0
+    rk = km.get('resumen', 'Resumen - Aclaracion')
+    previo: Dict[int, dict] = {}
+    for i, row in enumerate(rows):
+        if row.get('is_duplicate'):
+            continue
+        textos = [row.get(rk), row.get('Resumen - Aclaracion'), _texto_fila(row, km)]
+        ref = memoria_cliente.buscar_referencia(
+            referencias, _titulo_fila(row, km), [str(t) for t in textos if t])
+        if ref:
+            previo[i] = ref
+    if not previo:
+        return 0
+    por_noticia: Dict[str, List[int]] = defaultdict(list)
+    for i, row in enumerate(rows):
+        if row.get('is_duplicate'):
+            continue
+        gid = (mapa or {}).get(i)
+        por_noticia[('g:%s' % gid) if gid is not None
+                    else ('t:' + nz(_titulo_fila(row, km)))].append(i)
+    cambios = 0
+    for idxs in por_noticia.values():
+        vistos = {nz(previo[i]['subtema']): previo[i] for i in idxs if i in previo}
+        if not vistos:
+            continue
+        unico = next(iter(vistos.values())) if len(vistos) == 1 else None
+        for i in idxs:
+            ref = previo.get(i, unico)
+            if ref and str(rows[i].get('Subtema_IA') or '') != ref['subtema']:
+                rows[i]['Subtema_IA'] = ref['subtema']
+                cambios += 1
+    return cambios
+
+
 def volcar_analisis_en_filas(rows: List[dict], mapa: Dict[int, int],
                              etiquetas: Dict[int, dict], temas: Dict[int, str],
                              preservar_tema: bool = False,
@@ -8520,6 +8564,8 @@ def enrich_rows_with_ai(
     _mem: Dict[str, dict] = {}
     _mem_huella = ''
     _ULTIMO_RESUMEN.pop('memoria', None)
+    _ULTIMO_RESUMEN.pop('subtemas_de_la_hoja', None)
+    _ULTIMO_RESUMEN.pop('referencias_sheets_leidas', None)
     _ULTIMO_RESUMEN.pop('para_revisar', None)
     if haiku and cfg.get('memoria'):
         import memoria_cliente
@@ -8936,6 +8982,13 @@ def enrich_rows_with_ai(
         # Clausifier: guarda final de forma del subtema (modo Haiku).
         _ULTIMO_RESUMEN['subtemas_forma_final'] = guarda_final_forma_subtema(
             rows, km, {i: (etiquetas.get(g) or {}).get('sub_tema') or '' for i, g in mapa.items() if g})
+
+    # v1.30: subtemas ya publicados en la hoja de notas analizadas (TÍTULO,
+    # RESUMEN, TEMA): la MISMA noticia retoma el TEMA de la hoja.
+    _refs = (extra or {}).get('referencias_sheets')
+    if isinstance(_refs, list) and _refs:
+        _ULTIMO_RESUMEN['referencias_sheets_leidas'] = len(_refs)
+        _ULTIMO_RESUMEN['subtemas_de_la_hoja'] = anclar_subtemas_hoja(rows, km, _refs, mapa=mapa)
 
     _etapa('Pase final por noticia')
     if haiku:

@@ -7407,6 +7407,121 @@ def reparar_copias_finales(cfg: dict, grupos: Sequence[dict],
     return ajustes
 
 
+def _texto_fijo_fila(row: dict, km: dict) -> str:
+    rk = km.get('resumen', 'Resumen - Aclaracion')
+    partes = [_titulo_fila(row, km), row.get(rk), row.get('Resumen - Aclaracion'),
+              row.get('CuerpoEs'), row.get('Contexto analizado')]
+    return ' '.join(str(p) for p in partes if p and str(p).strip() not in ('', '-'))
+
+
+def garantizar_subtemas_fijos_filas(rows: List[dict], km: dict, reglas,
+                                    mapa: Optional[dict] = None) -> int:
+    """v1.32 (regla del cliente): garantía ÚLTIMA de los subtemas fijos del
+    perfil («alerta temprana» => «Alertas Defensoría del Pueblo»), sobre las
+    filas ya volcadas y después de la unificación por noticia, el evaluador
+    y la guarda de forma, que podían dejar variantes como «Alerta temprana
+    sobre Rovira, San Antonio y Roncesvalles». Aplica si la frase va seguida
+    en el titular, el Resumen, el CuerpoEs, el Contexto analizado o en el
+    propio Subtema_IA, y a las filas de la MISMA noticia (mismo grupo o mismo
+    titular). Devuelve cuántas filas cambiaron."""
+    limpias = [(str(r.get('contiene') or '').strip(), str(r.get('subtema') or '').strip())
+               for r in (reglas or []) if isinstance(r, dict)]
+    limpias = [(c, s_) for c, s_ in limpias if c and s_]
+    if not limpias:
+        return 0
+    destino: Dict[int, str] = {}
+    for i, row in enumerate(rows):
+        if row.get('is_duplicate'):
+            continue
+        texto = _texto_fijo_fila(row, km)
+        actual = str(row.get('Subtema_IA') or '')
+        for contiene, subtema in limpias:
+            if _frase_contigua(contiene, texto) or _frase_contigua(contiene, actual):
+                destino[i] = subtema
+                break
+    if not destino:
+        return 0
+    # Misma noticia: mismo grupo o mismo titular.
+    por_clave: Dict[str, str] = {}
+    for i, sub in destino.items():
+        gid = (mapa or {}).get(i)
+        if gid is not None:
+            por_clave.setdefault('g:%s' % gid, sub)
+        por_clave.setdefault('t:' + nz(_titulo_fila(rows[i], km)), sub)
+    cambios = 0
+    for i, row in enumerate(rows):
+        if row.get('is_duplicate'):
+            continue
+        gid = (mapa or {}).get(i)
+        sub = destino.get(i) or (por_clave.get('g:%s' % gid) if gid is not None else None) \
+            or por_clave.get('t:' + nz(_titulo_fila(row, km)))
+        if sub and str(row.get('Subtema_IA') or '') != sub:
+            row['Subtema_IA'] = sub
+            cambios += 1
+    return cambios
+
+
+def unificar_variantes_final_filas(rows: List[dict], km: dict, brand: str = '', aliases=(),
+                                   fijos=()) -> int:
+    """v1.32: une, sobre las filas ya volcadas, VARIANTES del mismo rótulo
+    que los pases finales dejaron separadas («Evacuación de civiles en
+    Catatumbo» = «Evacuación de civiles y menores en Catatumbo»). Mismo
+    criterio que unificar_variantes_rotulo_estricto: solo rótulos que
+    `_subtemas_mismo_hecho` toma por el mismo hecho; el rótulo elegido (el
+    de más notas) debe ser bien formado y fiel al titular + Contexto de CADA
+    nota que lo recibe. Los rótulos fijos del perfil no entran. Corre antes
+    del evaluador de agrupación, que puede volver a separar lo que decidió
+    separar. Devuelve cuántas filas cambiaron."""
+    fijos_n = {nz(f) for f in (fijos or []) if f}
+    finales = {}
+    for i, row in enumerate(rows):
+        lab = str(row.get('Subtema_IA') or '').strip()
+        if row.get('is_duplicate') or not lab or lab == '-' or nz(lab) in fijos_n:
+            continue
+        finales[i] = lab
+    forma, peso = {}, Counter()
+    for lab in finales.values():
+        forma.setdefault(nz(lab), lab)
+        peso[nz(lab)] += 1
+    claves = sorted(forma)
+    if len(claves) < 2:
+        return 0
+    par = {k: k for k in claves}
+
+    def find(x):
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    for a_i in range(len(claves)):
+        for b_i in range(a_i + 1, len(claves)):
+            a, b = claves[a_i], claves[b_i]
+            if find(a) != find(b) and _subtemas_mismo_hecho(forma[a], forma[b]):
+                par[find(b)] = find(a)
+    comp = defaultdict(list)
+    for k in claves:
+        comp[find(k)].append(k)
+
+    def _ctx(i):
+        c = str(rows[i].get('Contexto analizado') or '').strip()
+        return c if c and c != '-' else _texto_fila(rows[i], km)
+    cambios = 0
+    for ks in comp.values():
+        if len(ks) < 2:
+            continue
+        orden = sorted(ks, key=lambda k: (-peso[k], -len(k.split()), k))
+        for i in [i for i, lab in finales.items() if nz(lab) in ks]:
+            tit = _titulo_fila(rows[i], km)
+            for k in orden:
+                c = forma[k]
+                if _rotulo_bien_formado(c, [tit]) and _rotulo_fiel(c, tit, _ctx(i), brand, aliases):
+                    if nz(c) != nz(finales[i]):
+                        rows[i]['Subtema_IA'] = c
+                        cambios += 1
+                    break
+    return cambios
+
+
 def anclar_subtemas_hoja(rows: List[dict], km: dict, referencias: list,
                          mapa: Optional[dict] = None) -> int:
     """v1.30: una noticia del dossier que es la MISMA noticia que una de la
@@ -8571,6 +8686,8 @@ def enrich_rows_with_ai(
     _mem_huella = ''
     _ULTIMO_RESUMEN.pop('memoria', None)
     _ULTIMO_RESUMEN.pop('subtemas_de_la_hoja', None)
+    _ULTIMO_RESUMEN.pop('subtemas_variantes_unidas_final', None)
+    _ULTIMO_RESUMEN.pop('subtemas_fijos_garantia_final', None)
     _ULTIMO_RESUMEN.pop('referencias_sheets_leidas', None)
     _ULTIMO_RESUMEN.pop('para_revisar', None)
     if haiku and cfg.get('memoria'):
@@ -8979,6 +9096,15 @@ def enrich_rows_with_ai(
         rotulos_compartidos=[(r or {}).get('subtema') for r in (cfg.get('subtemas_fijos') or [])
                              if isinstance(r, dict)])
     _ULTIMO_RESUMEN['unificacion_por_noticia'] = _por_noticia
+    # v1.32: variantes del mismo rótulo que quedaron separadas tras los pases
+    # finales (antes del evaluador, que conserva sus «separar»).
+    if cfg.get('agrupacion_estricta'):
+        _var = unificar_variantes_final_filas(
+            rows, km, brand=brand, aliases=aliases,
+            fijos=[(r or {}).get('subtema') for r in (cfg.get('subtemas_fijos') or [])
+                   if isinstance(r, dict)])
+        if _var:
+            _ULTIMO_RESUMEN['subtemas_variantes_unidas_final'] = _var
     if _eval_dec:
         # Clausifier: las decisiones del evaluador mandan sobre todas las
         # unificaciones deterministas anteriores (por grupo y por fila).
@@ -8989,6 +9115,11 @@ def enrich_rows_with_ai(
         _ULTIMO_RESUMEN['subtemas_forma_final'] = guarda_final_forma_subtema(
             rows, km, {i: (etiquetas.get(g) or {}).get('sub_tema') or '' for i, g in mapa.items() if g})
 
+    # v1.32: garantía ÚLTIMA de los subtemas fijos del perfil (alertas
+    # tempranas), después del evaluador y de la guarda de forma.
+    _fijos_fin = garantizar_subtemas_fijos_filas(rows, km, cfg.get('subtemas_fijos'), mapa=mapa)
+    if _fijos_fin:
+        _ULTIMO_RESUMEN['subtemas_fijos_garantia_final'] = _fijos_fin
     # v1.30: subtemas ya publicados en la hoja de notas analizadas (TÍTULO,
     # RESUMEN, TEMA): la MISMA noticia retoma el TEMA de la hoja.
     _refs = (extra or {}).get('referencias_sheets')

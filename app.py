@@ -16,10 +16,10 @@ from perfil_cliente import cargar_perfil, guardar_perfil, listar_perfiles, perfi
 from pipeline import (process_dossier, leer_columnas_xlsx, sugerir_columna,
                       renombrar_columnas_xlsx, construir_ai_config_custom,
                       LimiteFilasError, ErrorSheetsAnalizadas,
-                      cargar_ids_analizados_desde_sheets)
+                      cargar_ids_analizados_desde_sheets, cargar_hoja_analizadas)
 
 # Versión visible de la app (se muestra en el encabezado). Actualizar en cada release.
-APP_VERSION = "v1.29"
+APP_VERSION = "v1.30"
 
 # v1.2: cliente fijo de este repo. Se muestra en la pantalla de
 # contraseña y en un aviso permanente tras ingresar, para que las
@@ -510,18 +510,30 @@ def run_cleaning_process(df_file, file_meta=None, ai_config=None):
             # filtro está activado, se detiene sin procesar (el usuario
             # puede desactivar el filtro y procesar todo).
             ai_config_efectivo = ai_config
-            if ai_config and ai_config.get("excluir_analizados"):
+            _excluir = bool(ai_config and ai_config.get("excluir_analizados"))
+            _refs = bool(ai_config and ai_config.get("referencias_sheets", True))
+            if _excluir or _refs:
                 paint(1, "Leyendo notas ya analizadas (Google Sheets)…")
                 try:
-                    ids_analizados = cargar_ids_analizados_desde_sheets()
+                    # v1.30: una sola lectura para los IDs y los subtemas ya publicados.
+                    ids_analizados, referencias = cargar_hoja_analizadas(con_referencias=_refs)
                 except ErrorSheetsAnalizadas as exc:
-                    status_widget.update(
-                        label="No se pudo leer la hoja de notas ya analizadas",
-                        state="error")
-                    st.error(f"⚠️ {exc}")
-                    return
+                    if _excluir:
+                        status_widget.update(
+                            label="No se pudo leer la hoja de notas ya analizadas",
+                            state="error")
+                        st.error(f"⚠️ {exc}")
+                        return
+                    st.warning(f"⚠️ No se tomaron los subtemas de la hoja: {exc}")
+                    ids_analizados, referencias = None, []
                 ai_config_efectivo = dict(ai_config)
-                ai_config_efectivo["ids_analizados"] = ids_analizados
+                if _excluir:
+                    ai_config_efectivo["ids_analizados"] = ids_analizados
+                if referencias:
+                    ai_config_efectivo["referencias_sheets"] = referencias
+                    paint(1, f"Subtemas ya publicados en la hoja: {len(referencias)} notas recientes")
+                else:
+                    ai_config_efectivo.pop("referencias_sheets", None)
             result = process_dossier(
                 df_file,
                 region_map,
@@ -813,6 +825,15 @@ def main():
                                  "leer, el proceso se detiene; desmarca esta opción para "
                                  "procesar todas las notas de todas formas.",
                         )
+                        referencias_sheets_chk = st.checkbox(
+                            "Retomar el subtema (TEMA) de las notas ya publicadas en la hoja",
+                            value=True,
+                            help="Lee de la hoja de notas ya analizadas el TÍTULO, RESUMEN y TEMA de las notas "
+                                 "recientes. Si una nota del dossier es la MISMA noticia (mismo título o casi, "
+                                 "o el mismo resumen), retoma el TEMA de la hoja como Subtema_IA; las demás se "
+                                 "clasifican con las reglas de siempre. No cuentan las filas con 'No aplica', "
+                                 "'Duplicada' o sin TEMA.",
+                        )
 
                     with st.expander("⚙ Ajustes finos del análisis (opcional)"):
                         ca, cb, cc, cd = st.columns(4)
@@ -1009,6 +1030,7 @@ def main():
                                     "incluir_prominencia": bool(prominencia_chk),
                                     "memoria": bool(memoria_chk),
                                     "excluir_analizados": bool(excluir_analizados_chk),
+                                    "referencias_sheets": bool(referencias_sheets_chk),
                                     "permitir_cubos_nuevos": True,
                                     "tam_lote": int(tam_lote_input),
                                     "workers": int(workers_input),
@@ -1126,6 +1148,10 @@ def main():
                          "las notas que NO están en la hoja. Si la hoja no se puede "
                          "leer, el proceso se detiene; desmarca esta opción para "
                          "procesar todas las notas de todas formas.")
+                referencias_sheets_c = st.checkbox(
+                    "Retomar el subtema (TEMA) de las notas ya publicadas en la hoja",
+                    value=True, key="referencias_sheets_custom",
+                    help="Igual que en la pestaña estándar: la misma noticia retoma el TEMA de la hoja.")
 
                 with st.expander("⚙ Ajustes finos del análisis (opcional)"):
                     cca, ccb, ccc, ccd = st.columns(4)
@@ -1247,6 +1273,8 @@ def main():
                             umbral_titulo=int(umbral_titulo_c),
                             umbral_cuerpo=int(umbral_cuerpo_c),
                         )
+                        st.session_state["pending_ai_config"]["referencias_sheets"] = bool(
+                            referencias_sheets_c)
                         st.session_state["procesando"] = True
                         st.session_state["processing_complete"] = False
                         st.rerun()

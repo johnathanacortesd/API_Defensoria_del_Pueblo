@@ -39,11 +39,28 @@ _TONOS_REGLA = ("", "Positivo", "Negativo", "Neutro")
 _DONDE_REGLA = ("", "titular_entrada_contexto")
 
 
+# v1.36: o una frase (`contiene`) o palabras en la oración que nombra a la
+# marca (`frase_marca`, con `y_alguna` opcional).
+_LISTAS_REGLA = ("frase_marca", "y_alguna")
+
+
+def _tiene_disparador(r: dict) -> bool:
+    return bool(str(r.get("contiene") or "").strip()) or any(
+        str(x).strip() for x in (r.get("frase_marca") or []) if isinstance(x, str))
+
+
 def _regla_fija(r: dict) -> dict:
-    out = {"contiene": str(r.get("contiene") or "").strip(),
-           "subtema": str(r.get("subtema") or "").strip()}
+    out = {}
+    c = str(r.get("contiene") or "").strip()
+    if c:
+        out["contiene"] = c
+    out["subtema"] = str(r.get("subtema") or "").strip()
     for k in ("tono", "donde"):
         v = str(r.get(k) or "").strip()
+        if v:
+            out[k] = v
+    for k in _LISTAS_REGLA:
+        v = [str(x).strip() for x in (r.get(k) or []) if isinstance(x, str) and str(x).strip()]
         if v:
             out[k] = v
     return out
@@ -105,9 +122,13 @@ def validar_perfil(data: dict) -> list:
     sf = d["subtemas_fijos"]
     if sf is not None:
         if not isinstance(sf, list) or any(
-                not isinstance(r, dict) or not str(r.get("contiene") or "").strip()
+                not isinstance(r, dict) or not _tiene_disparador(r)
                 or not str(r.get("subtema") or "").strip() for r in sf):
-            errores.append("'subtemas_fijos' debe ser una lista de {contiene, subtema} con textos no vacíos")
+            errores.append("'subtemas_fijos' debe ser una lista de {contiene o frase_marca, subtema} "
+                           "con textos no vacíos")
+        elif any(not all(isinstance(x, str) for x in (r.get(k) or []))
+                 for r in sf for k in _LISTAS_REGLA):
+            errores.append("'frase_marca' e 'y_alguna' de un subtema fijo deben ser listas de textos")
         elif any(str(r.get("tono") or "").strip() not in _TONOS_REGLA for r in sf):
             errores.append("'tono' de un subtema fijo debe ser Positivo, Negativo o Neutro")
         elif any(str(r.get("donde") or "").strip() not in _DONDE_REGLA for r in sf):
@@ -156,7 +177,7 @@ def normalizar_perfil(data: dict) -> dict:
     d["criterio_custom"] = str(d["criterio_custom"] or "").strip()
     d["guia_subtema"] = str(d["guia_subtema"] or "").strip()
     d["subtemas_fijos"] = [_regla_fija(r) for r in (d["subtemas_fijos"] or [])
-                           if isinstance(r, dict) and str(r.get("contiene") or "").strip()
+                           if isinstance(r, dict) and _tiene_disparador(r)
                            and str(r.get("subtema") or "").strip()]
     d["clasificar_tipo_genero"] = bool(d["clasificar_tipo_genero"])
     d["tono_distrito_positivo"] = bool(d["tono_distrito_positivo"])

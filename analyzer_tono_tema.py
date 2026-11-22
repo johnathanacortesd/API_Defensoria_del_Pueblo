@@ -43,7 +43,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import requests
 
-from coherencia_texto import matriz_similitud, texto_noticia, tokens_marca
+from coherencia_texto import STOP_ES, matriz_similitud, texto_noticia, tokens_marca
 from catalogo_tono_tema import (
     CRITERIOS_TONO, CUBO_PROHIBIDO, EJEMPLOS, EJEMPLOS_SECTOR, EJEMPLOS_TEMA, MAX_PAL, META_CUBO,
     MIN_PAL, REGLAS_SUBTEMA, REGLAS_TEMA, TEMA_MAX_PAL, TEMA_MIN_PAL, TEMAS_EJEMPLO_BUENOS,
@@ -7415,10 +7415,40 @@ def _texto_fijo_fila(row: dict, km: dict) -> str:
 
 
 def _regla_solo_final(r) -> bool:
-    """v1.35: las reglas con `tono` o `donde` (p. ej. pico y placa) las
-    aplica solo la garantía final por fila, que es el último paso que toca
-    subtema y tono."""
-    return isinstance(r, dict) and bool(r.get('tono') or r.get('donde'))
+    """v1.35: las reglas con `tono`, `donde` o `frase_marca` (p. ej. las
+    excepciones del pico y placa) las aplica solo la garantía final por
+    fila, que es el último paso que toca subtema y tono."""
+    return isinstance(r, dict) and bool(r.get('tono') or r.get('donde') or r.get('frase_marca'))
+
+
+def _frases_de_marca(row: dict, km: dict, rx) -> List[str]:
+    """Oraciones del Contexto analizado (o, si falta, del texto) que nombran
+    a la marca, un alias o un vocero: lo que la nota dice del cliente."""
+    ctx = str(row.get('Contexto analizado') or row.get('texto') or '').strip()
+    if not ctx or ctx == '-':
+        ctx = _texto_fila(row, km)
+    frases = re.split(r'(?<=[.!?;])\s+|\n+', ctx)
+    return [f for f in frases if f.strip() and _mención_normalizada_en(nz(f), rx)]
+
+
+def _regla_frase_marca(regla: dict, row: dict, km: dict, rx) -> bool:
+    """v1.36 (regla del cliente): la regla aplica si UNA oración que nombra
+    a la marca trae todas las palabras de `frase_marca` (p. ej. «vehículo»)
+    y, en esa oración o en el titular / la entrada, alguna frase de
+    `y_alguna` («exentos», «excepciones», «pico y placa»…). Caso: «La
+    Procuraduría, Contraloría, Defensoría del Pueblo y Personería Distrital
+    tienen vehículos exentos». Un «hombres armados roban un vehículo de la
+    Defensoría» no aplica: no habla de exenciones."""
+    pide = [raiz(w) for w in words(' '.join(regla.get('frase_marca') or []))]
+    alguna = [str(x) for x in (regla.get('y_alguna') or []) if str(x).strip()]
+    cabeza = _texto_titular_entrada_contexto(dict(row, **{'Contexto analizado': ''}), km)
+    for f in _frases_de_marca(row, km, rx):
+        raices = {raiz(w) for w in words(f)}
+        if pide and not all(p in raices for p in pide):
+            continue
+        if not alguna or any(_frase_contigua(a, f) or _frase_contigua(a, cabeza) for a in alguna):
+            return True
+    return False
 
 
 def _texto_titular_entrada_contexto(row: dict, km: dict) -> str:
@@ -7433,7 +7463,8 @@ def _texto_titular_entrada_contexto(row: dict, km: dict) -> str:
 
 
 def garantizar_subtemas_fijos_filas(rows: List[dict], km: dict, reglas,
-                                    mapa: Optional[dict] = None) -> int:
+                                    mapa: Optional[dict] = None, brand: str = '',
+                                    aliases=(), voceros=()) -> int:
     """v1.32 (regla del cliente): garantía ÚLTIMA de los subtemas fijos del
     perfil («alerta temprana» => «Alertas Defensoría del Pueblo»), sobre las
     filas ya volcadas y después de la unificación por noticia, el evaluador
@@ -7448,17 +7479,22 @@ def garantizar_subtemas_fijos_filas(rows: List[dict], km: dict, reglas,
     y placa», Neutro: la Defensoría solo aparece en la lista de vehículos
     exentos) y limitar `donde` se busca la frase: con
     «titular_entrada_contexto», solo en el titular, la entrada y el Contexto
-    analizado, no en cualquier parte de un cuerpo largo."""
+    analizado, no en cualquier parte de un cuerpo largo.
+
+    v1.36: una regla con `frase_marca` (y `y_alguna`) se decide por la
+    oración que nombra a la marca (ver _regla_frase_marca); necesita
+    `brand`/`aliases`/`voceros`."""
     limpias = []
     for r in (reglas or []):
         if not isinstance(r, dict):
             continue
         c, s_ = str(r.get('contiene') or '').strip(), str(r.get('subtema') or '').strip()
-        if c and s_:
+        if s_ and (c or r.get('frase_marca')):
             tono = str(r.get('tono') or '').strip()
-            limpias.append((c, s_, tono if tono in TONOS else '', str(r.get('donde') or '').strip()))
+            limpias.append((c, s_, tono if tono in TONOS else '', str(r.get('donde') or '').strip(), r))
     if not limpias:
         return 0
+    rx = _regex_coincidencia(brand, list(aliases or []), list(voceros or [])) if brand else []
     destino: Dict[int, tuple] = {}
     for i, row in enumerate(rows):
         if row.get('is_duplicate'):
@@ -7466,9 +7502,13 @@ def garantizar_subtemas_fijos_filas(rows: List[dict], km: dict, reglas,
         texto = _texto_fijo_fila(row, km)
         acotado = _texto_titular_entrada_contexto(row, km)
         actual = str(row.get('Subtema_IA') or '')
-        for contiene, subtema, tono, donde in limpias:
-            base = acotado if donde == 'titular_entrada_contexto' else texto
-            if _frase_contigua(contiene, base) or _frase_contigua(contiene, actual):
+        for contiene, subtema, tono, donde, regla in limpias:
+            if regla.get('frase_marca'):
+                aplica = bool(rx) and _regla_frase_marca(regla, row, km, rx)
+            else:
+                base = acotado if donde == 'titular_entrada_contexto' else texto
+                aplica = _frase_contigua(contiene, base) or _frase_contigua(contiene, actual)
+            if aplica:
                 destino[i] = (subtema, tono)
                 break
     if not destino:
@@ -7660,6 +7700,155 @@ def unificar_variantes_final_filas(rows: List[dict], km: dict, brand: str = '', 
                         rows[i]['Subtema_IA'] = c
                         cambios += 1
                     break
+    return cambios
+
+
+# ============================================================================
+# v1.36 (regla del cliente 2026-11-22): «los subtemas deben corresponder a la
+# noticia y ser el MISMO cuando dos o más noticias son iguales o similares».
+# Caso real: el ataque con explosivos al batallón de La Jagua de Ibirico
+# (Cesar) salió con tres subtemas («Atentado con explosivos contra batallón
+# en Cesar» ×22, «Ataque con explosivos deja soldado muerto» ×4, «Ataque con
+# explosivos a batallón en Cesar» ×1), y el informe de la Defensoría sobre
+# el Catatumbo con dos («Alertas Defensoría del Pueblo» y «Alerta sobre
+# escalada armada en Catatumbo»). Calibrado con ese dossier: los rótulos del
+# mismo hecho dan 0,20-0,33 de similitud (titular + Contexto analizado) y los
+# de hechos distintos 0,16 o menos.
+# ============================================================================
+UMBRAL_EVENTO_NOTA = 0.18     # cada nota del rótulo debe tener un par así
+UMBRAL_EVENTO_MEDIA = 0.22    # y la media de esos pares, al menos esto
+_NO_ANCLA = frozenset('''colombia colombiano colombiana gobierno ejercito policia fiscalia
+procuraduria contraloria personeria presidente presidenta alcaldia alcalde gobernacion
+gobernador ministerio ministro congreso senado onu nacion nacional estado defensoria
+defensor defensora pueblo'''.split())
+
+
+def _anclas_titulo(titulo: str) -> set:
+    """Nombres propios del titular (lugares, personas, grupos): palabras con
+    mayúscula que no abren el titular, y la primera si va seguida de «:»
+    («Catatumbo: cinco muertos…»). Sin instituciones genéricas."""
+    toks = re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñü]+:?", str(titulo or ''))
+    out = set()
+    for k, w in enumerate(toks):
+        dos_puntos = w.endswith(':')
+        w = w.rstrip(':')
+        if len(w) < 4 or not w[:1].isupper():
+            continue
+        if k == 0 and not dos_puntos:
+            continue
+        n = nz(w)
+        if n not in _NO_ANCLA and n not in STOP_ES:
+            out.add(n)
+    return out
+
+
+def _rotulo_con_sustento(rotulo: str, texto: str, excluir=()) -> bool:
+    """La mitad de las palabras de contenido del rótulo (sin marca, alias ni
+    voceros) están en el texto, con tolerancia de plural y género."""
+    excl = {raiz(w) for w in (excluir or ())}
+    pal = {raiz(w) for w in words(rotulo) if len(w) >= 3 and w not in STOP_ES} - excl
+    if not pal:
+        return False
+    en = {raiz(w) for w in words(texto)}
+    pref = {w[:5] for w in en if len(w) >= 5}
+    return sum(1 for w in pal if w in en or (len(w) >= 5 and w[:5] in pref)) >= 0.5 * len(pal)
+
+
+def unificar_subtemas_mismo_evento_final(rows: List[dict], km: dict, brand: str = '',
+                                         aliases=(), voceros=(), reglas=(),
+                                         detalle: Optional[list] = None) -> int:
+    """v1.36: último pase de subtema. Un rótulo se une a otro si CADA una de
+    sus notas tiene, entre las del otro, una nota del mismo hecho: texto
+    parecido (titular + Contexto analizado, sin la marca) y un nombre propio
+    del titular en común; y la media de esos pares es alta. Se compara rótulo
+    contra rótulo (no nota a nota en cadena), así dos hechos del mismo tema
+    general (drones en el Catatumbo, drones en el Cesar) no se mezclan.
+
+    - Manda el subtema fijo del perfil si está en el bloque (con su tono, si
+      la regla lo trae); si no, el rótulo de más notas.
+    - Un rótulo libre solo se pone a una nota si tiene sustento en ella.
+    - Las notas con un subtema fijo no cambian de rótulo.
+    Devuelve cuántas filas cambiaron; `detalle` recibe los cambios."""
+    from coherencia_texto import matriz_similitud, tokens_marca
+    fijos = {}
+    for r in (reglas or []):
+        if isinstance(r, dict) and str(r.get('subtema') or '').strip():
+            t = str(r.get('tono') or '').strip()
+            fijos[nz(r['subtema'])] = t if t in TONOS else ''
+    idx = [i for i, r in enumerate(rows)
+           if not r.get('is_duplicate') and str(r.get('Subtema_IA') or '').strip() not in ('', '-')]
+    if len(idx) < 2:
+        return 0
+
+    def ctx(r):
+        c = str(r.get('Contexto analizado') or r.get('texto') or '').strip()
+        return c if c and c != '-' else _texto_fila(r, km)
+    excluir = tokens_marca(brand, list(aliases or []), list(voceros or []))
+    S = matriz_similitud([_titulo_fila(rows[i], km) + ' ' + ctx(rows[i]) for i in idx], excluir)
+    pos = {i: k for k, i in enumerate(idx)}
+    # Los nombres de la marca, sus alias y voceros dicen QUIÉN, no QUÉ hecho:
+    # no sirven de ancla (están en casi todas las notas del cliente).
+    _marca = {nz(w) for w in excluir}
+    anclas = {i: _anclas_titulo(_titulo_fila(rows[i], km)) - _marca for i in idx}
+    por_rotulo: Dict[str, List[int]] = defaultdict(list)
+    forma: Dict[str, str] = {}
+    for i in idx:
+        lab = str(rows[i]['Subtema_IA']).strip()
+        por_rotulo[nz(lab)].append(i)
+        forma.setdefault(nz(lab), lab)
+
+    def se_une(notas: List[int], otras: List[int]) -> float:
+        mejores = []
+        for a in notas:
+            m = 0.0
+            for b in otras:
+                if anclas[a] & anclas[b]:
+                    m = max(m, float(S[pos[a], pos[b]]))
+            if m < UMBRAL_EVENTO_NOTA:
+                return 0.0
+            mejores.append(m)
+        media = sum(mejores) / len(mejores)
+        return media if media >= UMBRAL_EVENTO_MEDIA else 0.0
+
+    # Bloques: de los rótulos con más notas a los de menos.
+    bloques: List[dict] = []
+    for k in sorted(por_rotulo, key=lambda k: (-len(por_rotulo[k]), k)):
+        notas = por_rotulo[k]
+        mejor, mejor_s = None, 0.0
+        for b in bloques:
+            if k in fijos and b['fijo'] and b['fijo'] != k:
+                continue          # dos subtemas fijos distintos no se mezclan
+            s_ = se_une(notas, b['notas'])
+            if s_ > mejor_s:
+                mejor, mejor_s = b, s_
+        if mejor is None:
+            bloques.append({'notas': list(notas), 'rotulos': [k], 'fijo': k if k in fijos else None})
+        else:
+            mejor['notas'].extend(notas)
+            mejor['rotulos'].append(k)
+            if k in fijos:
+                mejor['fijo'] = k
+    cambios = 0
+    for b in bloques:
+        if len(b['rotulos']) < 2:
+            continue
+        destino = b['fijo'] or b['rotulos'][0]
+        tono = fijos.get(destino, '') if b['fijo'] else ''
+        for k in b['rotulos']:
+            if k == destino or k in fijos:
+                continue
+            for i in por_rotulo[k]:
+                if not b['fijo'] and not _rotulo_con_sustento(
+                        forma[destino], _texto_titular_entrada_contexto(rows[i], km), excluir):
+                    continue
+                antes = rows[i]['Subtema_IA']
+                rows[i]['Subtema_IA'] = forma[destino]
+                if tono:
+                    rows[i]['Tono_IA'] = tono
+                cambios += 1
+                if detalle is not None:
+                    detalle.append({'fila': i, 'titulo': _titulo_fila(rows[i], km)[:160],
+                                    'antes': antes, 'ahora': forma[destino]})
     return cambios
 
 
@@ -8785,6 +8974,7 @@ def enrich_rows_with_ai(
     _ULTIMO_RESUMEN.pop('subtemas_variantes_unidas_final', None)
     _ULTIMO_RESUMEN.pop('subtemas_misma_nota_unidos', None)
     _ULTIMO_RESUMEN.pop('subtemas_fijos_garantia_final', None)
+    _ULTIMO_RESUMEN.pop('subtemas_mismo_evento_unidos', None)
     _ULTIMO_RESUMEN.pop('para_revisar', None)
     if haiku and cfg.get('memoria'):
         import memoria_cliente
@@ -9220,9 +9410,19 @@ def enrich_rows_with_ai(
 
     # v1.32: garantía ÚLTIMA de los subtemas fijos del perfil (alertas
     # tempranas), después del evaluador y de la guarda de forma.
-    _fijos_fin = garantizar_subtemas_fijos_filas(rows, km, cfg.get('subtemas_fijos'), mapa=mapa)
+    _fijos_fin = garantizar_subtemas_fijos_filas(
+        rows, km, cfg.get('subtemas_fijos'), mapa=mapa, brand=brand, aliases=aliases or [],
+        voceros=cfg.get('voceros') or [])
     if _fijos_fin:
         _ULTIMO_RESUMEN['subtemas_fijos_garantia_final'] = _fijos_fin
+    # v1.36: misma noticia => mismo subtema (último pase de subtema; manda
+    # el subtema fijo del perfil si está en el bloque).
+    _det_evento: List[dict] = []
+    _n_evento = unificar_subtemas_mismo_evento_final(
+        rows, km, brand=brand, aliases=aliases or [], voceros=cfg.get('voceros') or [],
+        reglas=cfg.get('subtemas_fijos') or [], detalle=_det_evento)
+    if _n_evento:
+        _ULTIMO_RESUMEN['subtemas_mismo_evento_unidos'] = _det_evento
     # v1.35: los TEMAS de la hoja de notas analizadas ya no se usan para
     # clasificar notas nuevas: la hoja solo filtra por ID (en app.py).
 

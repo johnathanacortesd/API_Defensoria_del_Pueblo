@@ -25,10 +25,22 @@
       "subtema": "Alertas Defensoría del Pueblo"
     },
     {
-      "contiene": "pico y placa",
       "subtema": "Excepciones pico y placa",
       "tono": "Neutro",
-      "donde": "titular_entrada_contexto"
+      "frase_marca": [
+        "vehículos"
+      ],
+      "y_alguna": [
+        "exentos",
+        "exento",
+        "exenta",
+        "exentas",
+        "excepción",
+        "excepciones",
+        "exceptuados",
+        "pico y placa",
+        "restricción vehicular"
+      ]
     }
   ],
   "clasificar_tipo_genero": false,

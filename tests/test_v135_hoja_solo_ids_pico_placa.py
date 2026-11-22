@@ -8,7 +8,8 @@ Positivo.
 - La hoja de Google Sheets SOLO sirve para saber qué notas ya están
   analizadas (columna ID); sus TEMAS no clasifican notas nuevas.
 - Las notas de pico y placa (la Defensoría solo aparece en la lista de
-  vehículos exentos) van a «Excepciones pico y placa», tono Neutro.
+  vehículos exentos) van a «Excepciones pico y placa», tono Neutro (v1.36:
+  la regla se decide por la oración que nombra a la Defensoría).
 """
 import inspect
 import json
@@ -27,6 +28,7 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KM = {'titulo': 'Título', 'resumen': 'Resumen - Aclaracion'}
 PERFIL = json.load(open(os.path.join(RAIZ, 'clientes', 'defensoria_del_pueblo.json'), encoding='utf-8'))
 REGLAS = PERFIL['subtemas_fijos']
+MARCA = dict(brand=PERFIL['brand'], aliases=PERFIL['aliases'], voceros=PERFIL['voceros'])
 ROBO = 'Hombres armados roban camioneta de la Defensoría'
 
 
@@ -76,9 +78,8 @@ def test_la_hoja_sigue_filtrando_por_id(tmp_path):
 # --- regla de pico y placa ----------------------------------------------------
 
 def test_perfil_trae_la_regla_y_la_conserva_al_normalizar():
-    regla = {'contiene': 'pico y placa', 'subtema': 'Excepciones pico y placa',
-             'tono': 'Neutro', 'donde': 'titular_entrada_contexto'}
-    assert regla in REGLAS
+    regla = next(r for r in REGLAS if r['subtema'] == 'Excepciones pico y placa')
+    assert regla['tono'] == 'Neutro' and regla['frase_marca']
     assert perfil_cliente.validar_perfil(PERFIL) == []
     assert regla in perfil_cliente.normalizar_perfil(PERFIL)['subtemas_fijos']
     malo = dict(PERFIL, subtemas_fijos=[dict(regla, tono='Bueno')])
@@ -87,7 +88,7 @@ def test_perfil_trae_la_regla_y_la_conserva_al_normalizar():
 
 def test_caso_real_pico_y_placa_excepciones_neutro():
     rows = _filas_reales()
-    n = az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1, 1: 1})
+    n = az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1, 1: 1}, **MARCA)
     assert n == 2
     assert [r['Subtema_IA'] for r in rows] == ['Excepciones pico y placa'] * 2
     assert [r['Tono_IA'] for r in rows] == ['Neutro'] * 2
@@ -95,7 +96,7 @@ def test_caso_real_pico_y_placa_excepciones_neutro():
 
 def test_cada_nota_por_si_sola_aunque_no_esten_agrupadas():
     rows = _filas_reales()
-    az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1, 1: 2})
+    az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1, 1: 2}, **MARCA)
     assert [(r['Subtema_IA'], r['Tono_IA']) for r in rows] == [
         ('Excepciones pico y placa', 'Neutro')] * 2
 
@@ -110,7 +111,7 @@ def test_pico_y_placa_al_fondo_de_otra_nota_no_cuenta():
              'Resumen - Aclaracion': cuerpo,
              'Contexto analizado': 'La Defensoría del Pueblo pidió atención urgente para las familias.',
              'Subtema_IA': 'Crisis humanitaria en el Catatumbo', 'Tono_IA': 'Positivo'}]
-    assert az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1}) == 0
+    assert az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1}, **MARCA) == 0
     assert rows[0]['Subtema_IA'] == 'Crisis humanitaria en el Catatumbo'
     assert rows[0]['Tono_IA'] == 'Positivo'
 
@@ -119,7 +120,7 @@ def test_alertas_tempranas_siguen_igual_y_no_tocan_el_tono():
     rows = [{'Título': 'Defensoría emite alerta temprana por reclutamiento en el Cauca',
              'Contexto analizado': 'La Defensoría emitió una alerta temprana.',
              'Subtema_IA': 'Reclutamiento en el Cauca', 'Tono_IA': 'Positivo'}]
-    assert az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1}) == 1
+    assert az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1}, **MARCA) == 1
     assert rows[0]['Subtema_IA'] == 'Alertas Defensoría del Pueblo'
     assert rows[0]['Tono_IA'] == 'Positivo'
 
@@ -136,5 +137,5 @@ def test_los_pases_anteriores_ignoran_la_regla_de_solo_final():
 def test_duplicadas_no_se_tocan():
     rows = _filas_reales()
     rows[1].update(is_duplicate=True, Tono_IA='Duplicada', Subtema_IA='-')
-    az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1, 1: 1})
+    az.garantizar_subtemas_fijos_filas(rows, KM, REGLAS, mapa={0: 1, 1: 1}, **MARCA)
     assert (rows[1]['Tono_IA'], rows[1]['Subtema_IA']) == ('Duplicada', '-')

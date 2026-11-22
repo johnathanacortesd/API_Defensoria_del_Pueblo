@@ -96,29 +96,6 @@ def _stem(w: str) -> str:
     return w
 
 
-def rotulo_con_sustento(rotulo: str, texto: str, excluir: Iterable[str] = (),
-                        minimo: float = 0.5) -> bool:
-    """v1.34: ¿el rótulo (subtema) habla de lo que dice el texto?
-
-    Cuenta las palabras de contenido del rótulo (sin palabras vacías ni los
-    tokens de marca, alias y voceros de `excluir`) que aparecen en el texto,
-    con tolerancia de plural y género (misma raíz de 5 letras). Hace falta al
-    menos la fracción `minimo`. «Hombres armados roban camioneta de la
-    Defensoría» no tiene sustento en una nota de pico y placa que solo dice
-    «vehículos de la Defensoría del Pueblo». Un rótulo sin palabras de
-    contenido (solo la marca) no tiene sustento."""
-    excl = {_stem(w) for w in (excluir or ())}
-    pal = {_stem(w) for w in tokens(rotulo)} - excl
-    if not pal:
-        return False
-    en_texto = {_stem(w) for w in tokens(texto)}
-    raices = {w[:5] for w in en_texto if len(w) >= 5}
-
-    def esta(w: str) -> bool:
-        return w in en_texto or (len(w) >= 5 and w[:5] in raices)
-    return sum(1 for w in pal if esta(w)) >= minimo * len(pal)
-
-
 def _analizador(excluir: Iterable[str]):
     excl = {_stem(w) for w in (excluir or ())}
 

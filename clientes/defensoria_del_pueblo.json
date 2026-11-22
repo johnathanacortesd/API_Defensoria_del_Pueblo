@@ -23,6 +23,12 @@
     {
       "contiene": "alerta temprana",
       "subtema": "Alertas Defensoría del Pueblo"
+    },
+    {
+      "contiene": "pico y placa",
+      "subtema": "Excepciones pico y placa",
+      "tono": "Neutro",
+      "donde": "titular_entrada_contexto"
     }
   ],
   "clasificar_tipo_genero": false,

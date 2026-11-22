@@ -33,6 +33,21 @@ import unicodedata
 from catalogo_tono_tema import CRITERIOS_TONO
 
 
+
+# v1.35: una regla fija puede llevar también el tono y dónde buscar la frase.
+_TONOS_REGLA = ("", "Positivo", "Negativo", "Neutro")
+_DONDE_REGLA = ("", "titular_entrada_contexto")
+
+
+def _regla_fija(r: dict) -> dict:
+    out = {"contiene": str(r.get("contiene") or "").strip(),
+           "subtema": str(r.get("subtema") or "").strip()}
+    for k in ("tono", "donde"):
+        v = str(r.get(k) or "").strip()
+        if v:
+            out[k] = v
+    return out
+
 def dir_clientes() -> str:
     """Carpeta donde viven los perfiles (se crea si no existe)."""
     base = os.environ.get("CLIENTES_DIR")
@@ -93,6 +108,10 @@ def validar_perfil(data: dict) -> list:
                 not isinstance(r, dict) or not str(r.get("contiene") or "").strip()
                 or not str(r.get("subtema") or "").strip() for r in sf):
             errores.append("'subtemas_fijos' debe ser una lista de {contiene, subtema} con textos no vacíos")
+        elif any(str(r.get("tono") or "").strip() not in _TONOS_REGLA for r in sf):
+            errores.append("'tono' de un subtema fijo debe ser Positivo, Negativo o Neutro")
+        elif any(str(r.get("donde") or "").strip() not in _DONDE_REGLA for r in sf):
+            errores.append("'donde' de un subtema fijo debe ser 'titular_entrada_contexto' o vacío")
     if not isinstance(d["clasificar_tipo_genero"], bool):
         errores.append("'clasificar_tipo_genero' debe ser true/false")
     if not isinstance(d["tono_distrito_positivo"], bool):
@@ -136,13 +155,9 @@ def normalizar_perfil(data: dict) -> dict:
     d["voceros"] = [v.strip() for v in (d["voceros"] or []) if str(v).strip()]
     d["criterio_custom"] = str(d["criterio_custom"] or "").strip()
     d["guia_subtema"] = str(d["guia_subtema"] or "").strip()
-    d["subtemas_fijos"] = [
-        {"contiene": str(r.get("contiene") or "").strip(),
-         "subtema": str(r.get("subtema") or "").strip()}
-        for r in (d["subtemas_fijos"] or [])
-        if isinstance(r, dict) and str(r.get("contiene") or "").strip()
-        and str(r.get("subtema") or "").strip()
-    ]
+    d["subtemas_fijos"] = [_regla_fija(r) for r in (d["subtemas_fijos"] or [])
+                           if isinstance(r, dict) and str(r.get("contiene") or "").strip()
+                           and str(r.get("subtema") or "").strip()]
     d["clasificar_tipo_genero"] = bool(d["clasificar_tipo_genero"])
     d["tono_distrito_positivo"] = bool(d["tono_distrito_positivo"])
     d["agrupacion_estricta"] = bool(d["agrupacion_estricta"])

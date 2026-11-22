@@ -7414,6 +7414,24 @@ def _texto_fijo_fila(row: dict, km: dict) -> str:
     return ' '.join(str(p) for p in partes if p and str(p).strip() not in ('', '-'))
 
 
+def _regla_solo_final(r) -> bool:
+    """v1.35: las reglas con `tono` o `donde` (p. ej. pico y placa) las
+    aplica solo la garantía final por fila, que es el último paso que toca
+    subtema y tono."""
+    return isinstance(r, dict) and bool(r.get('tono') or r.get('donde'))
+
+
+def _texto_titular_entrada_contexto(row: dict, km: dict) -> str:
+    """Donde la nota dice de qué trata: titular, entrada (primeras ~80
+    palabras del Resumen o del cuerpo) y el Contexto analizado (el pasaje
+    sobre la marca)."""
+    rk = km.get('resumen', 'Resumen - Aclaracion')
+    entrada = [' '.join(str(t).split()[:80])
+               for t in (row.get(rk), row.get('Resumen - Aclaracion'), row.get('CuerpoEs')) if t]
+    partes = [_titulo_fila(row, km)] + entrada + [row.get('Contexto analizado')]
+    return ' '.join(str(p) for p in partes if p and str(p).strip() not in ('', '-'))
+
+
 def garantizar_subtemas_fijos_filas(rows: List[dict], km: dict, reglas,
                                     mapa: Optional[dict] = None) -> int:
     """v1.32 (regla del cliente): garantía ÚLTIMA de los subtemas fijos del
@@ -7423,26 +7441,40 @@ def garantizar_subtemas_fijos_filas(rows: List[dict], km: dict, reglas,
     sobre Rovira, San Antonio y Roncesvalles». Aplica si la frase va seguida
     en el titular, el Resumen, el CuerpoEs, el Contexto analizado o en el
     propio Subtema_IA, y a las filas de la MISMA noticia (mismo grupo o mismo
-    titular). Devuelve cuántas filas cambiaron."""
-    limpias = [(str(r.get('contiene') or '').strip(), str(r.get('subtema') or '').strip())
-               for r in (reglas or []) if isinstance(r, dict)]
-    limpias = [(c, s_) for c, s_ in limpias if c and s_]
+    titular). Devuelve cuántas filas cambiaron.
+
+    v1.35 (regla del cliente, caso 2026-11-22, IDs 62099263 y 62099331): una
+    regla puede fijar también el `tono` («pico y placa» => «Excepciones pico
+    y placa», Neutro: la Defensoría solo aparece en la lista de vehículos
+    exentos) y limitar `donde` se busca la frase: con
+    «titular_entrada_contexto», solo en el titular, la entrada y el Contexto
+    analizado, no en cualquier parte de un cuerpo largo."""
+    limpias = []
+    for r in (reglas or []):
+        if not isinstance(r, dict):
+            continue
+        c, s_ = str(r.get('contiene') or '').strip(), str(r.get('subtema') or '').strip()
+        if c and s_:
+            tono = str(r.get('tono') or '').strip()
+            limpias.append((c, s_, tono if tono in TONOS else '', str(r.get('donde') or '').strip()))
     if not limpias:
         return 0
-    destino: Dict[int, str] = {}
+    destino: Dict[int, tuple] = {}
     for i, row in enumerate(rows):
         if row.get('is_duplicate'):
             continue
         texto = _texto_fijo_fila(row, km)
+        acotado = _texto_titular_entrada_contexto(row, km)
         actual = str(row.get('Subtema_IA') or '')
-        for contiene, subtema in limpias:
-            if _frase_contigua(contiene, texto) or _frase_contigua(contiene, actual):
-                destino[i] = subtema
+        for contiene, subtema, tono, donde in limpias:
+            base = acotado if donde == 'titular_entrada_contexto' else texto
+            if _frase_contigua(contiene, base) or _frase_contigua(contiene, actual):
+                destino[i] = (subtema, tono)
                 break
     if not destino:
         return 0
     # Misma noticia: mismo grupo o mismo titular.
-    por_clave: Dict[str, str] = {}
+    por_clave: Dict[str, tuple] = {}
     for i, sub in destino.items():
         gid = (mapa or {}).get(i)
         if gid is not None:
@@ -7453,11 +7485,19 @@ def garantizar_subtemas_fijos_filas(rows: List[dict], km: dict, reglas,
         if row.get('is_duplicate'):
             continue
         gid = (mapa or {}).get(i)
-        sub = destino.get(i) or (por_clave.get('g:%s' % gid) if gid is not None else None) \
+        fijo = destino.get(i) or (por_clave.get('g:%s' % gid) if gid is not None else None) \
             or por_clave.get('t:' + nz(_titulo_fila(row, km)))
-        if sub and str(row.get('Subtema_IA') or '') != sub:
+        if not fijo:
+            continue
+        sub, tono = fijo
+        cambio = False
+        if str(row.get('Subtema_IA') or '') != sub:
             row['Subtema_IA'] = sub
-            cambios += 1
+            cambio = True
+        if tono and row.get('Tono_IA') != tono:
+            row['Tono_IA'] = tono
+            cambio = True
+        cambios += int(cambio)
     return cambios
 
 
@@ -7623,72 +7663,6 @@ def unificar_variantes_final_filas(rows: List[dict], km: dict, brand: str = '', 
     return cambios
 
 
-def anclar_subtemas_hoja(rows: List[dict], km: dict, referencias: list,
-                         mapa: Optional[dict] = None, excluir=(),
-                         rechazos: Optional[list] = None) -> int:
-    """v1.30: una noticia del dossier que es la MISMA noticia que una de la
-    hoja de notas analizadas (mismo TÍTULO o casi, o mismo RESUMEN) retoma
-    su TEMA como Subtema_IA. Solo cambian la fila que coincide y las de su
-    misma noticia en esta corrida (mismo grupo de `mapa` o mismo titular):
-    nada se contagia por compartir un subtema automático. El tono no se
-    toca. Devuelve cuántas filas cambiaron.
-
-    v1.34 (caso real 2026-11-22, IDs 62099263 y 62099331): dos notas de pico
-    y placa en Cartagena salieron con «Hombres armados roban camioneta de la
-    Defensoría». Ahora el TEMA de la hoja solo se retoma si tiene sustento en
-    el texto de la nota (título, resumen y contexto; sin contar marca, alias
-    ni voceros de `excluir`). Los descartes se anotan en `rechazos`."""
-    import memoria_cliente
-    from coherencia_texto import rotulo_con_sustento
-    if not referencias:
-        return 0
-    rk = km.get('resumen', 'Resumen - Aclaracion')
-    previo: Dict[int, dict] = {}
-    for i, row in enumerate(rows):
-        if row.get('is_duplicate'):
-            continue
-        textos = [row.get(rk), row.get('Resumen - Aclaracion'), _texto_fila(row, km)]
-        ref = memoria_cliente.buscar_referencia(
-            referencias, _titulo_fila(row, km), [str(t) for t in textos if t])
-        if not ref:
-            continue
-        # Sustento donde la nota dice de qué trata: titular, entrada (primeras
-        # ~80 palabras) y Contexto analizado (el pasaje sobre la marca). No en
-        # todo el cuerpo: una lista larga de excepciones de pico y placa trae
-        # «armado» y «camioneta» sin hablar de ningún robo.
-        entrada = [' '.join(str(t).split()[:80]) for t in textos if t]
-        cuerpo = ' '.join(str(t) for t in [_titulo_fila(row, km)] + entrada
-                          + [row.get('Contexto analizado')] if t)
-        if not rotulo_con_sustento(ref['subtema'], cuerpo, excluir):
-            if rechazos is not None:
-                rechazos.append({'fila': i, 'titulo': _titulo_fila(row, km)[:160],
-                                 'subtema_hoja': ref['subtema'],
-                                 'titulo_hoja': (ref.get('titulo') or '')[:160]})
-            continue
-        previo[i] = ref
-    if not previo:
-        return 0
-    por_noticia: Dict[str, List[int]] = defaultdict(list)
-    for i, row in enumerate(rows):
-        if row.get('is_duplicate'):
-            continue
-        gid = (mapa or {}).get(i)
-        por_noticia[('g:%s' % gid) if gid is not None
-                    else ('t:' + nz(_titulo_fila(row, km)))].append(i)
-    cambios = 0
-    for idxs in por_noticia.values():
-        vistos = {nz(previo[i]['subtema']): previo[i] for i in idxs if i in previo}
-        if not vistos:
-            continue
-        unico = next(iter(vistos.values())) if len(vistos) == 1 else None
-        for i in idxs:
-            ref = previo.get(i, unico)
-            if ref and str(rows[i].get('Subtema_IA') or '') != ref['subtema']:
-                rows[i]['Subtema_IA'] = ref['subtema']
-                cambios += 1
-    return cambios
-
-
 def volcar_analisis_en_filas(rows: List[dict], mapa: Dict[int, int],
                              etiquetas: Dict[int, dict], temas: Dict[int, str],
                              preservar_tema: bool = False,
@@ -7801,7 +7775,7 @@ def aplicar_subtemas_fijos(grupos, etiquetas, reglas, estricta=False):
     bastaba con que "alerta" y "temprana" aparecieran sueltas.)"""
     limpias = []
     for r in (reglas or []):
-        if not isinstance(r, dict):
+        if not isinstance(r, dict) or _regla_solo_final(r):
             continue
         contiene = str(r.get("contiene") or "").strip()
         subtema = str(r.get("subtema") or "").strip()
@@ -7850,7 +7824,7 @@ def aplicar_subtemas_fijos_final(rows, ajustes_subtema, km, reglas):
     de ajustes actualizado."""
     ajustes = dict(ajustes_subtema or {})
     limpias = [(str(r.get('contiene') or '').strip(), str(r.get('subtema') or '').strip())
-               for r in (reglas or []) if isinstance(r, dict)]
+               for r in (reglas or []) if isinstance(r, dict) and not _regla_solo_final(r)]
     limpias = [(c, s_) for c, s_ in limpias if c and s_]
     if not limpias:
         return ajustes
@@ -8808,12 +8782,9 @@ def enrich_rows_with_ai(
     _mem: Dict[str, dict] = {}
     _mem_huella = ''
     _ULTIMO_RESUMEN.pop('memoria', None)
-    _ULTIMO_RESUMEN.pop('subtemas_de_la_hoja', None)
     _ULTIMO_RESUMEN.pop('subtemas_variantes_unidas_final', None)
     _ULTIMO_RESUMEN.pop('subtemas_misma_nota_unidos', None)
     _ULTIMO_RESUMEN.pop('subtemas_fijos_garantia_final', None)
-    _ULTIMO_RESUMEN.pop('referencias_sheets_leidas', None)
-    _ULTIMO_RESUMEN.pop('subtemas_de_la_hoja_descartados', None)
     _ULTIMO_RESUMEN.pop('para_revisar', None)
     if haiku and cfg.get('memoria'):
         import memoria_cliente
@@ -9252,17 +9223,8 @@ def enrich_rows_with_ai(
     _fijos_fin = garantizar_subtemas_fijos_filas(rows, km, cfg.get('subtemas_fijos'), mapa=mapa)
     if _fijos_fin:
         _ULTIMO_RESUMEN['subtemas_fijos_garantia_final'] = _fijos_fin
-    # v1.30: subtemas ya publicados en la hoja de notas analizadas (TÍTULO,
-    # RESUMEN, TEMA): la MISMA noticia retoma el TEMA de la hoja.
-    _refs = (extra or {}).get('referencias_sheets')
-    if isinstance(_refs, list) and _refs:
-        _ULTIMO_RESUMEN['referencias_sheets_leidas'] = len(_refs)
-        _rech_hoja: List[dict] = []
-        _ULTIMO_RESUMEN['subtemas_de_la_hoja'] = anclar_subtemas_hoja(
-            rows, km, _refs, mapa=mapa, rechazos=_rech_hoja,
-            excluir=tokens_marca(brand, aliases or [], cfg.get('voceros') or []))
-        if _rech_hoja:
-            _ULTIMO_RESUMEN['subtemas_de_la_hoja_descartados'] = _rech_hoja
+    # v1.35: los TEMAS de la hoja de notas analizadas ya no se usan para
+    # clasificar notas nuevas: la hoja solo filtra por ID (en app.py).
 
     _etapa('Pase final por noticia')
     if haiku:

@@ -516,45 +516,6 @@ def cargar_ids_analizados_desde_sheets(url=None):
     return ids
 
 
-def cargar_hoja_analizadas(url=None, con_referencias=True):
-    """v1.30: una sola lectura de la hoja de notas ya analizadas para dos
-    usos: los IDs ya analizados (filtro) y la referencia de subtemas ya
-    publicados (TÍTULO, RESUMEN y TEMA de las notas recientes), que la
-    corrida usa para que la misma noticia retome el TEMA de la hoja.
-    Devuelve (ids, referencias). Lanza ErrorSheetsAnalizadas si no se puede
-    leer o no trae columna ID."""
-    if not con_referencias:
-        return cargar_ids_analizados_desde_sheets(url), []
-    url = url or SHEETS_ANALIZADAS_CSV_URL
-    try:
-        df = pd.read_csv(url, dtype=str, keep_default_na=False)
-    except Exception as exc:
-        raise ErrorSheetsAnalizadas(
-            "No se pudo leer la hoja de notas ya analizadas en Google Sheets. "
-            "Revisa que esté compartida como 'Cualquier persona con el enlace "
-            "puede ver' o desactiva el filtro para procesar todas las notas."
-        ) from exc
-    id_col = None
-    for c in df.columns:
-        if str(c).replace(" ", "").replace("_", "").lower() in ("id", "idnoticia", "noticiaid"):
-            id_col = c
-            break
-    if id_col is None:
-        raise ErrorSheetsAnalizadas("La hoja de notas ya analizadas no trae una columna 'ID'.")
-    ids = {n for n in (normalizar_id(v) for v in df[id_col]) if n is not None}
-    referencias = []
-    try:
-        import memoria_cliente
-        # Solo las últimas filas (las notas recientes); además se filtra por fecha.
-        cola = df.tail(8000)
-        referencias = memoria_cliente.referencias_de_tabla(
-            list(cola.columns), cola.itertuples(index=False, name=None))
-    except Exception:
-        logging.getLogger(__name__).exception(
-            "No se pudieron leer los subtemas de la hoja; se sigue sin ellos.")
-    return ids, referencias
-
-
 def filtrar_ids_analizados(df, ids_set):
     """Quita del dossier las filas cuyo ID ya está analizado.
 

@@ -146,6 +146,27 @@ def _gramas(texto: str, k: int = 3) -> set:
     return {" ".join(w[i:i + k]) for i in range(max(0, len(w) - k + 1))}
 
 
+def _cifras_en_conflicto(texto_hoja: str, texto_nota: str) -> bool:
+    """v1.34: dos textos casi iguales con cifras distintas en su comienzo
+    (otra fecha, otros dígitos, otro número de muertos) NO son la misma
+    nota: son la misma plantilla de otro día («Pico y placa del 22 de
+    noviembre» frente al del 23). Se miran los números del tramo comparado
+    (las primeras ~80 palabras); un número que está en un texto y no en el
+    otro es conflicto. El tramo del otro texto se toma algo más largo para
+    que un corrimiento de pocas palabras no cuente como diferencia."""
+    a = _n(texto_hoja).split()
+    b = _n(texto_nota).split()
+    if len(_n(texto_hoja)) >= 500:     # el RESUMEN de la hoja viene cortado
+        a = a[:-1]
+    m = min(len(a), len(b), 80)
+    if m <= 0:
+        return False
+    na, nb = {w for w in a[:m] if w.isdigit()}, {w for w in b[:m] if w.isdigit()}
+    na_amplio = {w for w in a[:m + 15] if w.isdigit()}
+    nb_amplio = {w for w in b[:m + 15] if w.isdigit()}
+    return bool((na - nb_amplio) or (nb - na_amplio))
+
+
 def _jac(a: set, b: set) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
@@ -238,7 +259,8 @@ def buscar_referencia(entradas: list, titulo: str, textos=()) -> Optional[dict]:
       al RESUMEN de la hoja (la misma nota con otro titular)."""
     tn = _n(titulo)
     c, p, cifras = _contenido(titulo), _propios(titulo), _cifras(titulo)
-    gs = [g for g in (_gramas(t) for t in (textos or []) if t) if len(g) >= MIN_GRAMAS_TEXTO]
+    gs = [(g, t) for g, t in ((_gramas(t), t) for t in (textos or []) if t)
+          if len(g) >= MIN_GRAMAS_TEXTO]
     mejor, mejor_s = None, 0.0
     for e in entradas or []:
         et = e.get("titulo") or ""
@@ -254,9 +276,9 @@ def buscar_referencia(entradas: list, titulo: str, textos=()) -> Optional[dict]:
                     s = jt
         eg = _gramas(e.get("texto") or "")
         if len(eg) >= MIN_GRAMAS_TEXTO:
-            for g in gs:
+            for g, t in gs:
                 jg = _jac(g, eg)
-                if jg >= UMBRAL_TEXTO:
+                if jg >= UMBRAL_TEXTO and not _cifras_en_conflicto(e.get("texto") or "", t):
                     s = max(s, jg)
         if s > mejor_s:
             mejor, mejor_s = e, s

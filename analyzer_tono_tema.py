@@ -7624,14 +7624,22 @@ def unificar_variantes_final_filas(rows: List[dict], km: dict, brand: str = '', 
 
 
 def anclar_subtemas_hoja(rows: List[dict], km: dict, referencias: list,
-                         mapa: Optional[dict] = None) -> int:
+                         mapa: Optional[dict] = None, excluir=(),
+                         rechazos: Optional[list] = None) -> int:
     """v1.30: una noticia del dossier que es la MISMA noticia que una de la
     hoja de notas analizadas (mismo TÍTULO o casi, o mismo RESUMEN) retoma
     su TEMA como Subtema_IA. Solo cambian la fila que coincide y las de su
     misma noticia en esta corrida (mismo grupo de `mapa` o mismo titular):
     nada se contagia por compartir un subtema automático. El tono no se
-    toca. Devuelve cuántas filas cambiaron."""
+    toca. Devuelve cuántas filas cambiaron.
+
+    v1.34 (caso real 2026-11-22, IDs 62099263 y 62099331): dos notas de pico
+    y placa en Cartagena salieron con «Hombres armados roban camioneta de la
+    Defensoría». Ahora el TEMA de la hoja solo se retoma si tiene sustento en
+    el texto de la nota (título, resumen y contexto; sin contar marca, alias
+    ni voceros de `excluir`). Los descartes se anotan en `rechazos`."""
     import memoria_cliente
+    from coherencia_texto import rotulo_con_sustento
     if not referencias:
         return 0
     rk = km.get('resumen', 'Resumen - Aclaracion')
@@ -7642,8 +7650,22 @@ def anclar_subtemas_hoja(rows: List[dict], km: dict, referencias: list,
         textos = [row.get(rk), row.get('Resumen - Aclaracion'), _texto_fila(row, km)]
         ref = memoria_cliente.buscar_referencia(
             referencias, _titulo_fila(row, km), [str(t) for t in textos if t])
-        if ref:
-            previo[i] = ref
+        if not ref:
+            continue
+        # Sustento donde la nota dice de qué trata: titular, entrada (primeras
+        # ~80 palabras) y Contexto analizado (el pasaje sobre la marca). No en
+        # todo el cuerpo: una lista larga de excepciones de pico y placa trae
+        # «armado» y «camioneta» sin hablar de ningún robo.
+        entrada = [' '.join(str(t).split()[:80]) for t in textos if t]
+        cuerpo = ' '.join(str(t) for t in [_titulo_fila(row, km)] + entrada
+                          + [row.get('Contexto analizado')] if t)
+        if not rotulo_con_sustento(ref['subtema'], cuerpo, excluir):
+            if rechazos is not None:
+                rechazos.append({'fila': i, 'titulo': _titulo_fila(row, km)[:160],
+                                 'subtema_hoja': ref['subtema'],
+                                 'titulo_hoja': (ref.get('titulo') or '')[:160]})
+            continue
+        previo[i] = ref
     if not previo:
         return 0
     por_noticia: Dict[str, List[int]] = defaultdict(list)
@@ -8791,6 +8813,7 @@ def enrich_rows_with_ai(
     _ULTIMO_RESUMEN.pop('subtemas_misma_nota_unidos', None)
     _ULTIMO_RESUMEN.pop('subtemas_fijos_garantia_final', None)
     _ULTIMO_RESUMEN.pop('referencias_sheets_leidas', None)
+    _ULTIMO_RESUMEN.pop('subtemas_de_la_hoja_descartados', None)
     _ULTIMO_RESUMEN.pop('para_revisar', None)
     if haiku and cfg.get('memoria'):
         import memoria_cliente
@@ -9234,7 +9257,12 @@ def enrich_rows_with_ai(
     _refs = (extra or {}).get('referencias_sheets')
     if isinstance(_refs, list) and _refs:
         _ULTIMO_RESUMEN['referencias_sheets_leidas'] = len(_refs)
-        _ULTIMO_RESUMEN['subtemas_de_la_hoja'] = anclar_subtemas_hoja(rows, km, _refs, mapa=mapa)
+        _rech_hoja: List[dict] = []
+        _ULTIMO_RESUMEN['subtemas_de_la_hoja'] = anclar_subtemas_hoja(
+            rows, km, _refs, mapa=mapa, rechazos=_rech_hoja,
+            excluir=tokens_marca(brand, aliases or [], cfg.get('voceros') or []))
+        if _rech_hoja:
+            _ULTIMO_RESUMEN['subtemas_de_la_hoja_descartados'] = _rech_hoja
 
     _etapa('Pase final por noticia')
     if haiku:

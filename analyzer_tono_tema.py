@@ -7852,114 +7852,6 @@ def unificar_subtemas_mismo_evento_final(rows: List[dict], km: dict, brand: str 
     return cambios
 
 
-# ============================================================================
-# v1.37 (regla del cliente 2026-11-22): los resúmenes de noticiero
-# («Titulares», «Titulares- 22 NOV 2026») cuentan varias noticias; la que
-# importa es la que nombra a la Defensoría. Toman el subtema de ESA noticia
-# en el dossier. Caso real: 12015267 (La FM) y 12015332 (Canal RCN): «La
-# Defensoría del Pueblo reportó 17 nuevos hechos de violencia en el
-# Catatumbo…» => el subtema del informe del Catatumbo. Calibrado: la noticia
-# correcta da ≈ 0,19 y la siguiente ≤ 0,11.
-# ============================================================================
-SIM_RESUMEN_NOTICIA = 0.14    # parecido mínimo de la frase con la noticia
-MARGEN_RESUMEN_NOTICIA = 0.05  # ventaja mínima sobre la segunda noticia
-_PAL_RESUMEN = frozenset('''titulares titular resumen avance sintesis boletin destacado destacadas
-principales noticias noticiero informativo emision edicion hora hoy primera ultima lo mas de del la
-las el los en y'''.split())
-_CLAVE_RESUMEN = frozenset('''titulares titular resumen avance sintesis boletin destacado
-destacadas principales'''.split())
-_MESES = frozenset('''ene feb mar abr may jun jul ago sep sept oct nov dic enero febrero marzo abril
-mayo junio julio agosto septiembre octubre noviembre diciembre'''.split())
-
-
-def es_resumen_noticiero(titulo: str) -> bool:
-    """«Titulares», «Titulares- 22 NOV 2026», «Resumen de noticias»…: el
-    titular solo dice que es un resumen (sin fechas ni números)."""
-    pal = [w for w in words(titulo) if not w.isdigit() and w not in _MESES]
-    return bool(pal) and bool(set(pal) & _CLAVE_RESUMEN) and set(pal) <= _PAL_RESUMEN
-
-
-def asignar_subtema_resumen_noticiero(rows: List[dict], km: dict, brand: str = '',
-                                      aliases=(), voceros=(), reglas=(),
-                                      detalle: Optional[list] = None) -> int:
-    """v1.37: un resumen de noticiero toma el subtema de la noticia del
-    dossier de la que habla su frase sobre la marca. Hace falta que esa
-    noticia gane con claridad (parecido mínimo, margen sobre la segunda) y
-    que comparta un nombre propio con la frase; si no, la nota se queda como
-    está. Devuelve cuántas filas cambiaron."""
-    from coherencia_texto import matriz_similitud, tokens_marca
-    rx = _regex_coincidencia(brand, list(aliases or []), list(voceros or [])) if brand else []
-    if not rx:
-        return 0
-    tonos = {}
-    for r in (reglas or []):
-        if isinstance(r, dict) and str(r.get('subtema') or '').strip():
-            t = str(r.get('tono') or '').strip()
-            tonos[nz(r['subtema'])] = t if t in TONOS else ''
-    excluir = tokens_marca(brand, list(aliases or []), list(voceros or []))
-    marca = {nz(w) for w in excluir}
-    resumenes = [i for i, r in enumerate(rows)
-                 if not r.get('is_duplicate') and es_resumen_noticiero(_titulo_fila(r, km))]
-    if not resumenes:
-        return 0
-    noticias = [i for i, r in enumerate(rows)
-                if i not in set(resumenes) and not r.get('is_duplicate')
-                and str(r.get('Subtema_IA') or '').strip() not in ('', '-')]
-    if not noticias:
-        return 0
-
-    def ctx(r):
-        c = str(r.get('Contexto analizado') or r.get('texto') or '').strip()
-        return c if c and c != '-' else _texto_fila(r, km)
-    docs = [_titulo_fila(rows[j], km) + ' ' + ctx(rows[j]) for j in noticias]
-    anclas = [_anclas_titulo(_titulo_fila(rows[j], km)) - marca for j in noticias]
-    cambios = 0
-    for i in resumenes:
-        r = rows[i]
-        texto = '\n'.join(str(x) for x in (r.get('Contexto analizado'), r.get('texto'),
-                                            r.get(km.get('resumen', 'Resumen - Aclaracion')),
-                                            r.get('Resumen - Aclaracion')) if x)
-        frases = re.split(r'(?<=[.!?;])\s+|\n+|\s(?=\d{1,2}\.\s)', texto)
-        frases = list(dict.fromkeys(f.strip() for f in frases
-                                    if f.strip() and _mención_normalizada_en(nz(f), rx)))
-        mejor = None    # (sim, margen, subtema)
-        for f in frases:
-            S = matriz_similitud([f] + docs, excluir)
-            prop = {nz(w) for w in re.findall(r"[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñü]{3,}", f)} - marca
-            por_sub: Dict[str, float] = {}
-            forma: Dict[str, str] = {}
-            for k, j in enumerate(noticias):
-                lab = str(rows[j]['Subtema_IA']).strip()
-                forma.setdefault(nz(lab), lab)
-                sim = float(S[0, k + 1])
-                if prop & anclas[k] or not prop:
-                    por_sub[nz(lab)] = max(por_sub.get(nz(lab), 0.0), sim)
-                else:
-                    por_sub.setdefault(nz(lab), 0.0)
-            if not por_sub:
-                continue
-            orden = sorted(por_sub.items(), key=lambda kv: -kv[1])
-            s1 = orden[0][1]
-            s2 = orden[1][1] if len(orden) > 1 else 0.0
-            if not prop or s1 < SIM_RESUMEN_NOTICIA or s1 - s2 < MARGEN_RESUMEN_NOTICIA:
-                continue
-            if mejor is None or s1 > mejor[0]:
-                mejor = (s1, s1 - s2, forma[orden[0][0]])
-        if not mejor:
-            continue
-        sub = mejor[2]
-        if str(r.get('Subtema_IA') or '') != sub:
-            antes = r.get('Subtema_IA')
-            r['Subtema_IA'] = sub
-            if tonos.get(nz(sub)):
-                r['Tono_IA'] = tonos[nz(sub)]
-            cambios += 1
-            if detalle is not None:
-                detalle.append({'fila': i, 'titulo': _titulo_fila(r, km)[:160],
-                                'antes': antes, 'ahora': sub, 'similitud': round(mejor[0], 3)})
-    return cambios
-
-
 def volcar_analisis_en_filas(rows: List[dict], mapa: Dict[int, int],
                              etiquetas: Dict[int, dict], temas: Dict[int, str],
                              preservar_tema: bool = False,
@@ -9083,7 +8975,6 @@ def enrich_rows_with_ai(
     _ULTIMO_RESUMEN.pop('subtemas_misma_nota_unidos', None)
     _ULTIMO_RESUMEN.pop('subtemas_fijos_garantia_final', None)
     _ULTIMO_RESUMEN.pop('subtemas_mismo_evento_unidos', None)
-    _ULTIMO_RESUMEN.pop('subtemas_resumen_noticiero', None)
     _ULTIMO_RESUMEN.pop('para_revisar', None)
     if haiku and cfg.get('memoria'):
         import memoria_cliente
@@ -9532,13 +9423,6 @@ def enrich_rows_with_ai(
         reglas=cfg.get('subtemas_fijos') or [], detalle=_det_evento)
     if _n_evento:
         _ULTIMO_RESUMEN['subtemas_mismo_evento_unidos'] = _det_evento
-    # v1.37: los resúmenes de noticiero («Titulares») toman el subtema de la
-    # noticia de la que habla su frase sobre la marca.
-    _det_res: List[dict] = []
-    if asignar_subtema_resumen_noticiero(
-            rows, km, brand=brand, aliases=aliases or [], voceros=cfg.get('voceros') or [],
-            reglas=cfg.get('subtemas_fijos') or [], detalle=_det_res):
-        _ULTIMO_RESUMEN['subtemas_resumen_noticiero'] = _det_res
     # v1.35: los TEMAS de la hoja de notas analizadas ya no se usan para
     # clasificar notas nuevas: la hoja solo filtra por ID (en app.py).
 

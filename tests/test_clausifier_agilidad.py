@@ -195,13 +195,3 @@ def _correr(reg, **extra):
 
 
 
-def test_pantalla_resumen_de_tonos_y_subtemas():
-    import app
-    vista = [{'ID': '1', 'Tono': 'Positivo', 'Subtema': 'A', 'Tema': ''},
-             {'ID': '2', 'Tono': 'Positivo', 'Subtema': 'A', 'Tema': ''},
-             {'ID': '3', 'Tono': 'Negativo', 'Subtema': 'B', 'Tema': ''},
-             {'ID': '4', 'Tono': 'Neutro', 'Subtema': '', 'Tema': ''}]
-    assert app.resumen_tonos(vista) == [('Positivo', 2, 50.0), ('Neutro', 1, 25.0), ('Negativo', 1, 25.0)]
-    df = app.tabla_subtemas(vista)
-    assert list(df['Subtema']) == ['A', 'B'] and list(df['Notas']) == [2, 1]
-    assert list(df.columns) == ['Subtema', 'Notas', 'Positivo', 'Neutro', 'Negativo']

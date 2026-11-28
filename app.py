@@ -3,7 +3,6 @@
 # ======================================
 import html
 import io
-import json
 import logging
 import os
 import re
@@ -56,11 +55,11 @@ _modulos_del_proyecto_al_dia()
 
 
 from catalogo_tono_tema import CRITERIOS_TONO
-from perfil_cliente import cargar_perfil, guardar_perfil, listar_perfiles, perfil_a_resumen, slugify
+from perfil_cliente import cargar_perfil, guardar_perfil, listar_perfiles, slugify
 from pipeline import (process_dossier, leer_columnas_xlsx, sugerir_columna,
                       renombrar_columnas_xlsx, construir_ai_config_custom,
                       LimiteFilasError, ErrorSheetsAnalizadas,
-                      cargar_ids_analizados_desde_sheets, cargar_hoja_analizadas)
+                      cargar_hoja_analizadas)
 
 # Versión visible de la app (se muestra en el encabezado). Actualizar en cada release.
 APP_VERSION = "v1.34"
@@ -350,7 +349,7 @@ PIPELINE_STEPS = [
     ("read", "Leer el Excel"),
     ("norm", "Limpiar y normalizar"),
     ("dups", "Menciones y duplicadas"),
-    ("ai", "Contexto analizado (sin IA)"),
+    ("ai", "Contexto analizado"),
     ("export", "Generar archivo de resultado"),
 ]
 
@@ -418,7 +417,7 @@ def _render_live_html(pct, msg, elapsed, file_label, active_key):
         <div class="live-metric"><div class="live-metric-val">en curso</div><div class="live-metric-lbl">Estado</div></div>
       </div>
       <div class="step-list">{''.join(steps_html)}</div>
-      <div class="live-hint">Límite de seguridad: máximo 1.000 filas por archivo. La deduplicación previa agrupa las notas idénticas antes del análisis.</div>
+      <div class="live-hint">Límite de seguridad: máximo 1.000 filas por archivo.</div>
       <div class="live-detail">{safe_msg}</div>
     </div>
     """
@@ -426,91 +425,20 @@ def _render_live_html(pct, msg, elapsed, file_label, active_key):
 # ─── pantalla de resultados ───────────────────────────────────────────────
 # Tono: dos polos y un punto medio gris (validado para daltonismo); el
 # nombre, el conteo y el porcentaje van siempre en texto junto al color.
-COLORES_TONO = {"Positivo": "#2e7d4f", "Neutro": "#b5afa8", "Negativo": "#c0392b"}
-
-
-def resumen_tonos(vista: list) -> list:
-    """[(tono, n, pct)] en orden Positivo, Neutro, Negativo (solo con datos)."""
-    total = sum(1 for f in vista if f.get("Tono") in COLORES_TONO)
-    out = []
-    for t in COLORES_TONO:
-        n = sum(1 for f in vista if f.get("Tono") == t)
-        out.append((t, n, (100.0 * n / total) if total else 0.0))
-    return out
-
-
-def tabla_subtemas(vista: list) -> pd.DataFrame:
-    """Subtemas con número de notas y su reparto por tono, de mayor a menor."""
-    filas = [f for f in vista if f.get("Subtema")]
-    if not filas:
-        return pd.DataFrame()
-    df = pd.DataFrame(filas)
-    g = df.groupby("Subtema")
-    out = pd.DataFrame({"Notas": g.size()})
-    for t in COLORES_TONO:
-        out[t] = g["Tono"].apply(lambda x, t=t: int((x == t).sum()))
-    if "Tema" in df.columns and df["Tema"].astype(bool).any():
-        out.insert(0, "Tema", g["Tema"].agg(lambda x: x.mode().iat[0] if len(x.mode()) else ""))
-    return out.sort_values(["Notas"], ascending=False).reset_index()
+def perfil_a_resumen_limpieza(perfil: dict) -> str:
+    """Línea del perfil para la interfaz: solo lo que usa la limpieza."""
+    partes = []
+    if perfil.get("aliases"):
+        partes.append("alias: " + ", ".join(perfil["aliases"][:4]))
+    if perfil.get("voceros"):
+        partes.append("voceros: " + ", ".join(perfil["voceros"][:4]))
+    if perfil.get("formato_boletin"):
+        partes.append("formato boletín (FECHA INFORME / HORA B)")
+    return " · ".join(partes)
 
 
 def _render_resultados(vista: list, analisis: dict, tiempos: list) -> None:
-    """Distribución de tono, subtemas, vista previa, filas para revisar y
-    tiempo por etapa. Todo sale de datos ya calculados (no relee el xlsx)."""
-    if vista and any(f.get("Tono") for f in vista):
-        st.markdown('<div class="sec-label">Resultado de la clasificación</div>',
-                    unsafe_allow_html=True)
-        tonos = resumen_tonos(vista)
-        segs = "".join(
-            '<div class="tono-seg" title="%s: %d notas (%.1f%%)" style="flex:%d 1 0;background:%s"></div>'
-            % (t, n, pct, n, COLORES_TONO[t]) for t, n, pct in tonos if n)
-        ley = "".join(
-            '<span><span class="tono-dot" style="background:%s"></span><b>%s</b> %d · %.1f%%</span>'
-            % (COLORES_TONO[t], t, n, pct) for t, n, pct in tonos)
-        st.markdown('<div class="tono-barra" role="img" aria-label="Distribución de tono">%s</div>'
-                    '<div class="tono-ley">%s</div>' % (segs, ley), unsafe_allow_html=True)
-
-        tab_sub, tab_filas, tab_rev = st.tabs(["Subtemas", "Noticias clasificadas", "Para revisar"])
-        with tab_sub:
-            df_sub = tabla_subtemas(vista)
-            if df_sub.empty:
-                st.caption("Esta corrida no generó subtemas.")
-            else:
-                st.caption("%d subtemas en %d noticias únicas." % (len(df_sub), len(vista)))
-                st.dataframe(
-                    df_sub, hide_index=True, use_container_width=True,
-                    column_config={"Notas": st.column_config.ProgressColumn(
-                        "Notas", format="%d", min_value=0, max_value=int(df_sub["Notas"].max()),
-                        color="gray")})
-        with tab_filas:
-            c1, c2 = st.columns([1, 3])
-            f_tono = c1.selectbox("Tono", ["Todos"] + list(COLORES_TONO), key="res_filtro_tono")
-            f_txt = c2.text_input("Buscar en título, subtema o medio", key="res_filtro_txt")
-            df = pd.DataFrame(vista)
-            df = df[[c for c in df.columns if df[c].astype(bool).any()]]
-            if f_tono != "Todos" and "Tono" in df.columns:
-                df = df[df["Tono"] == f_tono]
-            if f_txt.strip():
-                q = f_txt.strip().lower()
-                df = df[df.apply(lambda r: q in " ".join(map(str, r.values)).lower(), axis=1)]
-            st.caption("%d de %d noticias únicas." % (len(df), len(vista)))
-            st.dataframe(df, hide_index=True, use_container_width=True,
-                         height=360 if len(df) > 9 else "auto")
-        with tab_rev:
-            rev = (analisis or {}).get("para_revisar") or []
-            if rev:
-                st.caption("%d filas que conviene mirar antes de entregar. El tono y el subtema "
-                           "son los finales del archivo." % len(rev))
-                st.dataframe(
-                    pd.DataFrame(rev)[["motivo", "id", "titulo", "tono", "subtema", "detalle"]].rename(
-                        columns={"motivo": "Motivo", "id": "ID", "titulo": "Título", "tono": "Tono",
-                                 "subtema": "Subtema", "detalle": "Detalle"}),
-                    hide_index=True, use_container_width=True,
-                    height=320 if len(rev) > 8 else "auto")
-            elif (analisis or {}).get("motor") == "haiku":
-                st.caption("Ninguna fila quedó marcada para revisión.")
-            else:
-                st.caption("La lista de revisión solo está disponible con el motor Claude Haiku.")
+    """Tiempo por etapa de la corrida (solo limpieza)."""
     if tiempos:
         total = sum(t["segundos"] for t in tiempos if not t.get("sub")) or 1.0
         with st.expander("Tiempo por etapa (%s)" % _fmt_elapsed(total)):
@@ -555,29 +483,18 @@ def run_cleaning_process(df_file, file_meta=None, ai_config=None):
             # puede desactivar el filtro y procesar todo).
             ai_config_efectivo = ai_config
             _excluir = bool(ai_config and ai_config.get("excluir_analizados"))
-            _refs = bool(ai_config and ai_config.get("referencias_sheets", True))
-            if _excluir or _refs:
+            if _excluir:
                 paint(1, "Leyendo notas ya analizadas (Google Sheets)…")
                 try:
-                    # v1.30: una sola lectura para los IDs y los subtemas ya publicados.
-                    ids_analizados, referencias = cargar_hoja_analizadas(con_referencias=_refs)
+                    ids_analizados, _ = cargar_hoja_analizadas(con_referencias=False)
                 except ErrorSheetsAnalizadas as exc:
-                    if _excluir:
-                        status_widget.update(
-                            label="No se pudo leer la hoja de notas ya analizadas",
-                            state="error")
-                        st.error(f"⚠️ {exc}")
-                        return
-                    st.warning(f"⚠️ No se tomaron los subtemas de la hoja: {exc}")
-                    ids_analizados, referencias = None, []
+                    status_widget.update(
+                        label="No se pudo leer la hoja de notas ya analizadas",
+                        state="error")
+                    st.error(f"⚠️ {exc}")
+                    return
                 ai_config_efectivo = dict(ai_config)
-                if _excluir:
-                    ai_config_efectivo["ids_analizados"] = ids_analizados
-                if referencias:
-                    ai_config_efectivo["referencias_sheets"] = referencias
-                    paint(1, f"Subtemas ya publicados en la hoja: {len(referencias)} notas recientes")
-                else:
-                    ai_config_efectivo.pop("referencias_sheets", None)
+                ai_config_efectivo["ids_analizados"] = ids_analizados
             result = process_dossier(
                 df_file,
                 region_map,
@@ -703,9 +620,8 @@ def main():
                     "Perfil de cliente",
                     _opciones_perfil,
                     index=_indice_perfil_defecto,
-                    help="Carga la configuración guardada del cliente. Puedes editar los campos "
-                         "abajo antes de procesar; también puedes guardar la configuración actual "
-                         "como un perfil nuevo desde 'Ajustes finos'.",
+                    help="Carga la marca, los alias, los voceros y el formato del boletín guardados "
+                         "para el cliente. Puedes editar los campos abajo antes de procesar.",
                 )
                 _perfil_actual = None
                 if sel_perfil != _SIN_PERFIL:
@@ -736,7 +652,7 @@ def main():
                             st.session_state["_perfil_hora_boletin_tarde"] = _perfil_actual.get("hora_boletin_tarde") or "6:00 p.m."
                             st.session_state["_perfil_aplicado"] = sel_perfil
                             st.rerun()
-                        st.caption("📋 " + perfil_a_resumen(_perfil_actual))
+                        st.caption("📋 " + perfil_a_resumen_limpieza(_perfil_actual))
                 else:
                     st.session_state["_perfil_aplicado"] = None
                     st.session_state["_perfil_taxonomia"] = None
@@ -769,7 +685,7 @@ def main():
                     f1 = st.file_uploader("Dossier", type=["xlsx"], label_visibility="collapsed", key="f1")
 
                     st.markdown('<div class="sec-label">2. Configuración de la limpieza</div>', unsafe_allow_html=True)
-                    st.caption("Solo limpieza y detección de duplicados, sin IA ni APIs: Tono y Subtema "
+                    st.caption("Solo limpieza y detección de duplicados. Tono y Subtema "
                                "salen vacíos. La marca, los alias y los voceros se usan para armar el "
                                "Contexto analizado.")
 
@@ -801,7 +717,7 @@ def main():
                         prominencia_chk = st.checkbox(
                             "Agregar columna Prominencia (presencia de la marca)",
                             value=False,
-                            help="Métrica determinista (sin IA): cuenta menciones de la marca y sus "
+                            help="Métrica determinista: cuenta menciones de la marca y sus "
                                  "alias en Título y CuerpoEs. Exclusiva: 4+ menciones, o marca en el "
                                  "título con 2+ en el cuerpo, o 'comunicado de la marca' con 2+ "
                                  "menciones. Compartida: 2-3 menciones, o marca en el título con "
@@ -1049,65 +965,6 @@ def main():
                     "descargable contiene solo las notas nuevas."
                 )
 
-            analisis = st.session_state.get("analisis") or {}
-            if analisis:
-                grupos = analisis.get("grupos")
-                cubos_nuevos = analisis.get("cubos_nuevos") or []
-                reglas = analisis.get("temas_por_regla")
-                por_llm = analisis.get("temas_por_llm")
-                fallback = len(analisis.get("grupos_con_fallback") or [])
-                errores = analisis.get("errores_api") or []
-                guarda = len(analisis.get("tono_corregido_por_guarda") or [])
-                votos = analisis.get("votos_tono")
-                piezas = []
-                if grupos:
-                    piezas.append(f"{grupos} hechos únicos agrupados")
-                if votos:
-                    piezas.append(f"tono verificado {votos}× por grupo")
-                if guarda:
-                    piezas.append(f"guarda del tono: {guarda} Negativos sin señalamiento pasaron a Neutro")
-                if reglas is not None:
-                    piezas.append(f"Tema por reglas: {reglas} · por IA: {por_llm or 0}")
-                uni_llm = analisis.get("subtemas_unificados_llm") or 0
-                if uni_llm:
-                    piezas.append(f"subtemas unificados entre lotes por IA: {uni_llm}")
-                if cubos_nuevos:
-                    piezas.append("Cubos nuevos específicos: " + ", ".join(cubos_nuevos[:4]))
-                if fallback:
-                    piezas.append(f"⚠️ {fallback} etiquetas con respaldo determinista")
-                _mem = analisis.get("memoria") or {}
-                if _mem.get("reutilizadas"):
-                    piezas.append(f"{_mem['reutilizadas']} noticias reutilizadas de corridas anteriores "
-                                  f"(sin costo)")
-                _ag = (analisis.get("haiku") or {}).get("agentes") or 0
-                if _ag > 1:
-                    piezas.append(f"{_ag} agentes clasificaron en paralelo")
-                if piezas:
-                    st.info("**Análisis de Tono/Tema/Sub-tema**\n" + "\n".join("- " + x for x in piezas))
-                if errores:
-                    st.caption("Avisos del modelo: " + " | ".join(map(str, errores[:2])))
-                temas_gen = analisis.get("taxonomia") or []
-                detalle_tax = analisis.get("taxonomia_detalle") or {}
-                if temas_gen:
-                    modo = analisis.get("modo_taxonomia")
-                    if modo in ("lote", "automatica"):
-                        etiqueta = "de este lote"
-                    else:
-                        etiqueta = "nombres candidatos del cliente"
-                    titulo_exp = "Temas de este lote (%d, %s)" % (len(temas_gen), etiqueta)
-                    with st.expander(titulo_exp, expanded=(modo in ("lote", "automatica"))):
-                        st.markdown(" · ".join("`%s`" % t for t in temas_gen))
-                        if detalle_tax:
-                            st.download_button(
-                                "⬇ Descargar Temas de este lote (JSON)",
-                                data=json.dumps(detalle_tax, ensure_ascii=False, indent=1),
-                                file_name="temas_%s.json" % str(
-                                    st.session_state.get("output_filename", "cliente")).replace(".xlsx", ""),
-                                mime="application/json",
-                            )
-                            st.caption("Son los Temas armados bottom-up en esta corrida. El próximo lote "
-                                       "vuelve a agrupar sus propios subtemas; no se reutiliza el vocabulario.")
-        
             st.markdown(f"""
             <div class="metrics-grid">
               <div class="metric-card m-total"><div class="metric-val" style="color:var(--text)">{total}</div><div class="metric-lbl">Total Registros</div></div>

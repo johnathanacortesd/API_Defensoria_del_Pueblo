@@ -1910,7 +1910,7 @@ def process_dossier(
     analisis = {}
     ai_extra = dict(ai_config or {})
     ai_extra["incluir_tema"] = False
-    emit_progress(progress, 70, "Extrayendo Contexto analizado (sin IA)…")
+    emit_progress(progress, 70, "Extrayendo Contexto analizado…")
     rows = preparar_contexto_sin_ia(rows, ai_config)
     vaciar_clasificacion(rows)
     _etapa("Contexto analizado")

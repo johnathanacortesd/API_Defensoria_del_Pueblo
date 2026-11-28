@@ -5,6 +5,22 @@ con una función nueva en la **v1.0**: **Resumen para informe** a partir de
 un xlsx corregido.
 
 
+### v1.34 — Solo limpieza y detección de duplicados, sin IA ni APIs (2026-11-28)
+
+- La app ya **no clasifica**: **Tono_IA y Subtema_IA salen vacíos**
+  (también en las duplicadas, que se reconocen por «ID duplicada»). La
+  inferencia se hace por fuera, en local. Tema_IA no se exporta.
+- **No se llama a ninguna API** (ni OpenAI, ni Claude, ni Jev) ni se usan
+  modelos PKL. Se quitaron de la interfaz el selector de motor, el criterio
+  de tono, la lista de Temas, el modelo, los ajustes del análisis y
+  «Retomar el subtema (TEMA) de la hoja».
+- Todo lo demás sigue igual: lectura y normalización, regiones, menciones,
+  **duplicados**, Link Nota / Streaming / Link Ext / Web Ext / Audio,
+  **Contexto analizado** (mismas reglas locales) y **texto**, formato del
+  boletín (FECHA INFORME, HORA B y orden de columnas), filtro de notas ya
+  analizadas (Google Sheets), Prominencia opcional, historial y correo de
+  auditoría.
+
 ### Nunca agrupar porque sí (caso «Jardín Olarte», 2026-11-09)
 
 Dossier real de la Secretaría General revisado a mano (51 filas). Con las

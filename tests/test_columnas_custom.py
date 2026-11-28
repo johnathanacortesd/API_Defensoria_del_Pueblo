@@ -134,8 +134,6 @@ class TestConfigCustom(unittest.TestCase):
         base.update(kw)
         return construir_ai_config_custom(**base)
 
-    def test_none_sin_analisis(self):
-        self.assertIsNone(self._cfg(enable_ai=False))
 
     def test_con_pkl_tono_y_tema(self):
         cfg = self._cfg(tone_pkl_bytes=b"tono", theme_pkl_bytes=b"tema", incluir_tema=True)

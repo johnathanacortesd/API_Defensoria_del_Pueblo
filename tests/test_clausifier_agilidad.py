@@ -191,43 +191,8 @@ def _correr(reg, **extra):
         return pipeline.process_dossier(io.BytesIO(_dossier()), {}, {}, ai_config=cfg)
 
 
-def test_resultado_trae_tiempos_vista_y_para_revisar():
-    reg = []
-    res = _correr(reg)
-    etapas = [t['etapa'] for t in res['tiempos']]
-    assert 'Lectura, limpieza y duplicados' in etapas and 'Generación del Excel' in etapas
-    assert 'Análisis de tono, tema y subtema' in etapas
-    sub = [t['etapa'] for t in res['tiempos'] if t.get('sub')]
-    assert 'Clasificación (agente Haiku)' in sub and 'Agrupación de notas equivalentes' in sub
-    assert all(t['segundos'] >= 0 for t in res['tiempos'])
-    vista = res['vista']
-    assert len(vista) == 3 and {f['ID'] for f in vista} == {'101', '102', '103'}
-    assert all(f['Tono'] in ('Positivo', 'Neutro', 'Negativo') and f['Subtema'] for f in vista)
-    rev = res['analisis']['para_revisar']
-    sin = [x for x in rev if x['motivo'] == 'Sin mención literal de la marca']
-    assert [x['id'] for x in sin] == ['102'] and sin[0]['subtema']
-    assert ('auditor', None) in reg                       # corrió a la vez que el evaluador
 
 
-def test_segunda_corrida_reutiliza_la_memoria_y_da_lo_mismo():
-    reg1, reg2 = [], []
-    r1 = _correr(reg1)
-    assert r1['analisis']['memoria'] == {'activa': True, 'reutilizadas': 0, 'guardadas': 3}
-    r2 = _correr(reg2)
-    assert r2['analisis']['memoria']['reutilizadas'] == 3
-    assert not [k for k, _ in reg2 if k in ('unico', 'tramo', 'cierre')]      # el agente no corrió
-    assert r2['analisis']['costo_aprox_usd'] == 0
-    clave = lambda r: sorted((f['ID'], f['Tono'], f['Subtema']) for f in r['vista'])  # noqa: E731
-    assert clave(r1) == clave(r2)
-    # Otra configuración (nuevo alias) no usa la memoria anterior.
-    reg3 = []
-    r3 = _correr(reg3, aliases=['la Marca'])
-    assert r3['analisis']['memoria']['reutilizadas'] == 0
-    # Y se puede apagar.
-    reg4 = []
-    r4 = _correr(reg4, memoria=False)
-    assert r4['analisis']['memoria'] == {'activa': False, 'reutilizadas': 0, 'guardadas': 0}
-    assert [k for k, _ in reg4 if k == 'unico']
 
 
 def test_pantalla_resumen_de_tonos_y_subtemas():

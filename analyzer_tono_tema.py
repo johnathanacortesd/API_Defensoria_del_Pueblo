@@ -8662,6 +8662,28 @@ def guarda_final_forma_subtema(rows: List[dict], km: dict,
     return {'reparados': reparados, 'sobrevivientes': sobrevivientes}
 
 
+def contexto_sin_ia(rows: List[dict], km: dict, brand: str,
+                    aliases: Sequence[str] = (), voceros: Sequence[str] = ()) -> List[dict]:
+    """v1.34 (solo limpieza): «Contexto analizado» con las mismas reglas
+    locales del análisis (título si menciona marca/alias/vocero + extracto
+    exacto de la marca), sin ninguna llamada a una API. Las duplicadas
+    llevan '-'."""
+    aliases = list(aliases or [])
+    voceros = list(voceros or [])
+    for row in rows:
+        if row.get('is_duplicate'):
+            row['Contexto analizado'] = '-'
+            continue
+        ctx = _contexto_exacto_marca(
+            _texto_fila(row, km), _titulo_fila(row, km), brand, aliases,
+            voceros=voceros,
+            tipo_medio=str(row.get(km.get('tipodemedio', 'Tipo de Medio'), '') or ''))
+        row['Contexto analizado'] = _contexto_con_titulo_y_extension(
+            ctx, _titulo_fila(row, km), _texto_fila(row, km),
+            brand, aliases, voceros)
+    return rows
+
+
 def enrich_rows_with_ai(
     rows: List[dict],
     km: dict,

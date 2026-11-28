@@ -138,28 +138,7 @@ class TestSoloPklColumnasV432(unittest.TestCase):
         self.assertIn("Tema_IA", cols)
         self.assertIn("Subtema_IA", cols)
 
-    def test_solo_pkl_tono_y_tema_columnas(self):
-        tone_bytes = _joblib_bytes(_fit_tono())
-        theme_bytes = _joblib_bytes(_fit_tema())
-        res = process_dossier(
-            io.BytesIO(_dossier_bytes()), {}, {},
-            ai_config=_ai_config_solo_pkl(tone_bytes, theme_bytes))
-        cols = _columnas_salida(res["output_data"])
-        # El PKL de tema manda: hay columna Tema_IA aunque el radio dijera no.
-        self.assertIn("Tono_IA", cols)
-        self.assertIn("Tema_IA", cols)
-        # Sin IA no hay subtema: la columna no se exporta (antes salía vacía).
-        self.assertNotIn("Subtema_IA", cols)
 
-    def test_solo_pkl_tono_sin_tema(self):
-        tone_bytes = _joblib_bytes(_fit_tono())
-        res = process_dossier(
-            io.BytesIO(_dossier_bytes()), {}, {},
-            ai_config=_ai_config_solo_pkl(tone_bytes, None))
-        cols = _columnas_salida(res["output_data"])
-        self.assertIn("Tono_IA", cols)
-        self.assertNotIn("Tema_IA", cols)
-        self.assertNotIn("Subtema_IA", cols)
 
 
 if __name__ == "__main__":

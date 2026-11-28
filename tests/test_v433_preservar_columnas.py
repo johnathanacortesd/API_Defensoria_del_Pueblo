@@ -111,6 +111,7 @@ class TestPreservarColumnasV433(unittest.TestCase):
         # del final (v4.56/v4.57).
         self.assertEqual(headers, ["ID", "FECHA", "Título",
                                   "Resumen - Aclaracion", "LINK", "WEB",
+                                  "Tono_IA", "Subtema_IA", "Contexto analizado",
                                   "Prominencia", "texto", "Audio", "Link Ext",
                                   "Web Ext"])
         # La data de la primera columna se conserva.

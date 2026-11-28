@@ -206,31 +206,6 @@ def _dossier_bytes():
     return buf.getvalue()
 
 
-class TestPipelineMotor(unittest.TestCase):
-    def _cfg(self, motor):
-        return {'enabled': True, 'brand': 'Marca', 'aliases': [], 'voceros': [], 'criterio': None,
-                'incluir_tema': False, 'api_key': 'k', 'motor': motor,
-                'tone_pkl_bytes': b'x', 'theme_pkl_bytes': None}
-
-    def test_haiku_salta_pkl_y_pasa_motor(self):
-        def enrich(rows, **kw):
-            self.assertEqual(kw['extra']['motor'], 'haiku')
-            self.assertIsNone(kw['tone_model'])
-            for r in rows:
-                r.update(Tono_IA='Neutro', Subtema_IA='x', Tema_IA='')
-            return rows
-        with patch.object(pipeline, '_load_optional_pkl_models', side_effect=AssertionError('PKL no')), \
-             patch.object(pipeline, 'enrich_rows_with_ai', side_effect=enrich):
-            res = pipeline.process_dossier(io.BytesIO(_dossier_bytes()), {}, {}, ai_config=self._cfg('haiku'))
-        ws = load_workbook(io.BytesIO(res['output_data']), read_only=True).active
-        cols = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
-        self.assertIn('Tono_IA', cols)
-
-    def test_openai_carga_pkl_como_antes(self):
-        with patch.object(pipeline, '_load_optional_pkl_models', return_value=(None, None)) as lp, \
-             patch.object(pipeline, 'enrich_rows_with_ai', side_effect=lambda rows, **kw: rows):
-            pipeline.process_dossier(io.BytesIO(_dossier_bytes()), {}, {}, ai_config=self._cfg('openai'))
-        self.assertTrue(lp.called)
 
 
 if __name__ == '__main__':

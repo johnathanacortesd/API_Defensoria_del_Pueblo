@@ -5,6 +5,13 @@ con una función nueva en la **v1.0**: **Resumen para informe** a partir de
 un xlsx corregido.
 
 
+### v1.35 — Inicio de la columna «texto» (2026-11-28)
+
+- «texto» ya no empieza con guiones, espacios, «:» ni signos sueltos
+  («- : la alcaldía…» → «La alcaldía…»).
+- Solo la primera letra de la primera palabra va en mayúscula (también
+  después de «¿», «¡», comillas o paréntesis); el resto del texto no cambia.
+
 ### v1.34 — Solo limpieza y detección de duplicados, sin IA ni APIs (2026-11-28)
 
 - La app ya **no clasifica**: **Tono_IA y Subtema_IA salen vacíos**

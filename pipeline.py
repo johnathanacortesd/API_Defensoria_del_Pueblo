@@ -68,6 +68,26 @@ def _oraciones(texto: str):
     return [o.strip() for o in re.split(r"(?<=[.!?…])\s+", " ".join(str(texto or "").split())) if o.strip()]
 
 
+# Inicio de la columna «texto»: sin guiones, espacios, dos puntos ni
+# viñetas al comienzo; la primera letra de la primera palabra en
+# mayúscula y el resto tal cual.
+_INICIO_TEXTO_SOBRANTE = " \t\r\n\u00a0\u2007\u202f-\u2010\u2011\u2012\u2013\u2014\u2015\u2212:;,.•·*|_>/\\"
+_APERTURA_TEXTO = "¿¡\"'«“‘("
+
+
+def inicio_texto(texto) -> str:
+    """Quita del inicio guiones, espacios, «:» y signos sueltos, y pone en
+    mayúscula solo la primera letra de la primera palabra (después de un
+    «¿», «¡», comillas o paréntesis de apertura). No cambia nada más."""
+    t = str(texto or "").lstrip(_INICIO_TEXTO_SOBRANTE)
+    i = 0
+    while i < len(t) and t[i] in _APERTURA_TEXTO:
+        i += 1
+    if i < len(t) and t[i].isalpha() and t[i].islower():
+        t = t[:i] + t[i].upper() + t[i + 1:]
+    return t
+
+
 def texto_con_minimo(texto: str, resumen: str, titulo: str = "",
                      minimo: int = TEXTO_MIN_PALABRAS) -> str:
     """Columna «texto» con más de 15 palabras (v1.30, pedido del usuario).
@@ -1620,10 +1640,13 @@ def _write_xlsx_rows(ws, rows, km, n, step, progress, fmt_link, fmt_plain_hlink,
                     # v1.27 (igual que Secretaría v1.30): más de 15 palabras,
                     # completando con oraciones LITERALES del Resumen -
                     # Aclaracion (sin inventar).
-                    base = texto_con_minimo(" ".join(base.split()),
-                                            row.get("Resumen - Aclaracion") or "",
-                                            str(tit_v or ""))
-                    ws.write(excel_row, cidx, base)
+                    base = inicio_texto(texto_con_minimo(" ".join(base.split()),
+                                                         row.get("Resumen - Aclaracion") or "",
+                                                         str(tit_v or "")))
+                    if base:
+                        ws.write_string(excel_row, cidx, base)
+                    else:
+                        ws.write_blank(excel_row, cidx, None)
                 else:
                     ws.write_blank(excel_row, cidx, None)
                 continue

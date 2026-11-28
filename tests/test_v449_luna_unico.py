@@ -26,14 +26,6 @@ class TestLunaUnico(unittest.TestCase):
         self.assertNotIn("gpt-6-sol", self.src)
         self.assertNotIn("gpt-4.1-nano", self.src)
 
-    def test_modelo_fijo_en_ambos_paneles(self):
-        self.assertEqual(self.src.count('value="gpt-6-luna"'), 2)
-        self.assertIn('key="modelo_fijo"', self.src)
-        self.assertIn('key="modelo_custom"', self.src)
-        # Cada campo de modelo va deshabilitado (no editable por el usuario)
-        for clave in ('key="modelo_fijo"', 'key="modelo_custom"'):
-            bloque = self.src[self.src.index(clave) - 200:self.src.index(clave)]
-            self.assertIn("disabled=True", bloque)
 
 
 if __name__ == "__main__":

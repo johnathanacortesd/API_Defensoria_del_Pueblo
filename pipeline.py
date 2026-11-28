@@ -21,9 +21,8 @@ from openpyxl import load_workbook
 from openpyxl.utils.cell import column_index_from_string, coordinate_from_string, range_boundaries
 from unidecode import unidecode
 
-from analyzer_tono_tema import enrich_rows_with_ai, ultimo_resumen, aplicar_prominencia, _quitar_nombre_la_opinion
+from analyzer_tono_tema import aplicar_prominencia, contexto_sin_ia, _quitar_nombre_la_opinion
 from pkl_classifier import (
-    apply_pkl_classifiers,
     fill_classification_context,
     load_sklearn_estimator,
 )
@@ -1245,9 +1244,9 @@ def renombrar_columnas_xlsx(file_bytes: bytes, etiqueta_titulo: str,
 
 
 def construir_ai_config_custom(brand, alias_txt, voceros_txt, criterio,
-                               incluir_tema, incluir_prominencia, enable_ai,
-                               api_key, typesafe_api_key, historial_dir,
-                               tone_pkl_bytes, theme_pkl_bytes,
+                               incluir_tema=False, incluir_prominencia=False, enable_ai=False,
+                               api_key=None, typesafe_api_key=None, historial_dir=None,
+                               tone_pkl_bytes=None, theme_pkl_bytes=None,
                                model="gpt-6-luna",
                                criterio_texto="", taxonomia=None, guia_subtema="",
                                subtemas_fijos=None,
@@ -1272,9 +1271,11 @@ def construir_ai_config_custom(brand, alias_txt, voceros_txt, criterio,
     v4.34: paridad total con la pestaña estándar — criterio personalizado,
     taxonomía (dict de JSON o nombre), cubos/votos/lote/workers/umbrales y
     modelo son parámetros en vez de valores fijos.
+
+    v1.34: siempre devuelve el config (la app es solo de limpieza, sin IA):
+    lo necesita «preservar_columnas», el formato del boletín y la marca del
+    Contexto analizado.
     """
-    if not (enable_ai or incluir_prominencia or tone_pkl_bytes or theme_pkl_bytes):
-        return None
     return {
         "enabled": bool(enable_ai),
         "brand": (brand or "").strip(),
@@ -1781,6 +1782,32 @@ def vista_resultado(rows, km) -> List[dict]:
     return out
 
 
+# v1.34: columnas de clasificación que la app deja vacías (se infieren
+# fuera de la app).
+COLUMNAS_CLASIFICACION_VACIAS = ("Tono_IA", "Subtema_IA", "Tema_IA", "TIPO", "GÉNERO")
+
+
+def vaciar_clasificacion(rows) -> None:
+    """v1.34: Tono_IA, Subtema_IA (y Tema_IA, TIPO, GÉNERO) vacíos en todas
+    las filas (también en las duplicadas, que se identifican por ID
+    duplicada)."""
+    for row in rows:
+        for col in COLUMNAS_CLASIFICACION_VACIAS:
+            row[col] = ""
+
+
+def preparar_contexto_sin_ia(rows, ai_config: Optional[dict] = None):
+    """v1.34: Contexto analizado local (sin API). Con marca, el extracto
+    exacto de la marca; sin marca, título + resumen."""
+    cfg = ai_config or {}
+    brand = (cfg.get("brand") or "").strip()
+    if brand:
+        return contexto_sin_ia(rows, KEY_MAP, brand,
+                               aliases=cfg.get("aliases") or [],
+                               voceros=cfg.get("voceros") or [])
+    return fill_classification_context(rows, KEY_MAP)
+
+
 def process_dossier(
     file_obj,
     region_map,
@@ -1874,69 +1901,19 @@ def process_dossier(
     rows = detectar_duplicados_avanzado(rows_expanded, KEY_MAP)
 
     _etapa("Lectura, limpieza y duplicados", siempre=True)
-    has_ai = bool(ai_config and ai_config.get("enabled"))
-    # Motor de clasificación: "openai" (actual, por defecto) o "haiku"
-    # (agente Claude Haiku, motor_haiku.py). En modo haiku no se cargan PKL
-    # ni se usa Jev: el agente hace Tono/Subtema/Tema.
-    motor = str((ai_config or {}).get("motor") or "openai").strip().lower()
-    if motor == "haiku" and has_ai:
-        tone_model, theme_model = None, None
-    else:
-        tone_model, theme_model = _load_optional_pkl_models(ai_config)
-    has_pkl = tone_model is not None or theme_model is not None
+    # v1.34: la app es SOLO de limpieza y detección de duplicados. No se
+    # usa ninguna API ni modelo (IA o PKL): Tono_IA y Subtema_IA salen
+    # vacíos para clasificarlos fuera de la app. El Contexto analizado se
+    # arma con las reglas locales de siempre.
+    has_ai = False
+    has_pkl = False
     analisis = {}
-    # v4.32: el forzado de incluir_tema por PKL de tema (_ai_extra_con_pkl)
-    # aplica en AMBOS caminos (con IA y solo-PKL). Antes, en modo solo-PKL
-    # se leía el ai_config crudo y la columna Tema_IA desaparecía aunque el
-    # PKL de tema hubiera clasificado todo (bug reportado 2026-09-28).
-    ai_extra = _ai_extra_con_pkl(ai_config, theme_model)
-
-    if has_ai:
-        # v4.13: el PKL de tema del cliente manda. La clasificación es local
-        # (sin llamadas LLM ni demora), así que siempre se aplica aunque el
-        # checkbox "Generar columna Tema_IA" venga desmarcado.
-        emit_progress(progress, 70, "Iniciando análisis de Tono, Tema y Sub-tema…")
-        rows = enrich_rows_with_ai(
-            rows=rows,
-            km=KEY_MAP,
-            brand=ai_config["brand"],
-            aliases=ai_config.get("aliases", []),
-            api_key=ai_config.get("api_key") or "",
-            model=ai_config.get("model", "gpt-6-luna"),
-            progress_callback=progress,
-            tone_model=tone_model,
-            theme_model=theme_model,
-            extra=ai_extra,
-        )
-        analisis = ultimo_resumen()
-    elif has_pkl:
-        emit_progress(progress, 70, "Preparando textos para clasificadores PKL…")
-        rows = fill_classification_context(
-            rows,
-            KEY_MAP,
-            brand=(ai_config or {}).get("brand", ""),
-            aliases=(ai_config or {}).get("aliases", []),
-        )
-        emit_progress(progress, 88, "Aplicando modelos PKL del cliente (tono/tema)…")
-        rows = apply_pkl_classifiers(
-            rows,
-            KEY_MAP,
-            tone_model=tone_model,
-            theme_model=theme_model,
-            progress_callback=progress,
-            brand=(ai_config or {}).get("brand", ""),
-            aliases=(ai_config or {}).get("aliases", []),
-        )
-
-    # v4.23: prominencia de marca — métrica determinista por conteo de
-    # menciones en Título y CuerpoEs (sin LLM). Se calcula siempre que haya
-    # marca configurada, con o sin análisis IA.
-    # v4.24: el usuario puede desactivarla con el checkbox "Agregar columna
-    # Prominencia" en la app (incluir_prominencia; desde v4.26 default False,
-    # checkbox desmarcado).
-    if has_ai or has_pkl:
-        _etapa("Análisis de tono, tema y subtema" if has_ai else "Modelos PKL del cliente",
-               sub=(analisis or {}).get("tiempos"))
+    ai_extra = dict(ai_config or {})
+    ai_extra["incluir_tema"] = False
+    emit_progress(progress, 70, "Extrayendo Contexto analizado…")
+    rows = preparar_contexto_sin_ia(rows, ai_config)
+    vaciar_clasificacion(rows)
+    _etapa("Contexto analizado")
     _brand_prom = ((ai_config or {}).get("brand") or "").strip()
     _incluir_prominencia = bool(_brand_prom) and bool(
         (ai_config or {}).get("incluir_prominencia", False))
@@ -1976,15 +1953,14 @@ def process_dossier(
             _r["FECHA INFORME"] = _fecha_informe
             _r["HORA B"] = _hora_b
 
+    # v1.34: las columnas de clasificación se exportan (vacías) para
+    # conservar el formato del xlsx; Tema_IA no se exporta.
     cols_to_export = output_columns_for_export(
-        include_ai=has_ai or has_pkl,
-        include_tema=ai_extra.get("incluir_tema", True),
+        include_ai=True,
+        include_tema=False,
         include_prominencia=_incluir_prominencia,
-        # v4.32: sin IA no hay subtema (ningún PKL lo genera); la columna
-        # saldría vacía ("-"), así que no se exporta en modo solo-PKL.
-        include_subtema=has_ai,
-        # v1.6: TIPO/GÉNERO solo con IA (sin IA no hay quien los clasifique).
-        include_tipo_genero=has_ai and bool(ai_extra.get("clasificar_tipo_genero")),
+        include_subtema=True,
+        include_tipo_genero=bool(ai_extra.get("clasificar_tipo_genero")),
         # v4.52: Audiencia antes de Tier para todos, salvo el perfil Fenavi.
         audiencia_antes_de_tier=not _es_perfil_fenavi(ai_config),
     )
@@ -1994,11 +1970,11 @@ def process_dossier(
     if (ai_config or {}).get("preservar_columnas"):
         cols_to_export = _columnas_preservadas(
             columnas_entrada,
-            include_ai=has_ai or has_pkl,
-            include_tema=ai_extra.get("incluir_tema", True),
-            include_subtema=has_ai,
+            include_ai=True,
+            include_tema=False,
+            include_subtema=True,
             include_prominencia=_incluir_prominencia,
-            include_tipo_genero=has_ai and bool(ai_extra.get("clasificar_tipo_genero")),
+            include_tipo_genero=bool(ai_extra.get("clasificar_tipo_genero")),
             audiencia_antes_de_tier=not _es_perfil_fenavi(ai_config),
         )
     # v1.9: en formato boletín, la salida estándar es exactamente las 25
@@ -2022,15 +1998,8 @@ def process_dossier(
         overall = 94 + int(pct * 0.06)
         emit_progress(progress, overall, msg)
 
-    # v1.13/v1.9 (2026-10-31): género por URL web (ver
-    # aplicar_genero_por_url). Corre antes de exportar para que el xlsx
-    # ya lleve la Opinión; no afecta a filas sin género clasificado.
-    aplicar_genero_por_url(rows)
-
-    # v1.19 (orden del usuario): si la noticia dice "En entrevista con",
-    # pasa a Entrevista. Corre después del rescate por URL y con la misma
-    # guarda (solo sube Noticia); lo demás no cambia.
-    aplicar_genero_por_frase_entrevista(rows)
+    # v1.34: sin reglas de GÉNERO (por URL o entrevista): en modo solo
+    # limpieza la clasificación queda vacía.
 
     # v1.18/v1.14: FECHA INFORME siempre es la fecha de procesamiento
     # (Bogotá), en cualquier camino que la exporte — no solo en formato
@@ -2049,7 +2018,7 @@ def process_dossier(
     del rows, rows_expanded
     gc.collect()
     duration = time.time() - t0
-    emit_progress(progress, 100, "Limpieza y análisis completados")
+    emit_progress(progress, 100, "Limpieza completada")
 
     # Nombre del archivo con la primera marca buscada para orden
     if ai_config and ai_config.get("brand"):
